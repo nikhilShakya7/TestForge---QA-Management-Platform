@@ -32,6 +32,15 @@ type TestCaseForRun = {
 
 type ExecutionStatus = "Passed" | "Failed" | "Blocked";
 
+type ExecutionRecord = {
+  id: string;
+  testCaseId: string;
+  status: ExecutionStatus;
+  notes: string | null;
+  executedAt: string;
+  executedBy: { id: string; name: string | null; email: string } | null;
+};
+
 const STATUS_VARIANTS: Record<ExecutionStatus, string> = {
   Passed: "bg-emerald-50 text-emerald-700",
   Failed: "bg-red-50 text-red-700",
@@ -58,6 +67,7 @@ export default function TestRunsPage() {
   const [runTestCases, setRunTestCases] = useState<TestCaseForRun[]>([]);
   const [executions, setExecutions] = useState<Record<string, ExecutionStatus>>({});
   const [executionNotes, setExecutionNotes] = useState<Record<string, string>>({});
+  const [executionRecords, setExecutionRecords] = useState<Record<string, ExecutionRecord>>({});
   const [savingExecutions, setSavingExecutions] = useState(false);
 
   async function fetchTestRuns() {
@@ -116,13 +126,31 @@ export default function TestRunsPage() {
       setRunTestCases(cases);
 
       // Fetch existing executions for this run
-      // Note: we don't have a dedicated executions list endpoint yet,
-      // so we initialize all as unexecuted
-      const initialExecutions: Record<string, ExecutionStatus> = {};
-      cases.forEach((tc) => {
-        initialExecutions[tc.id] = "Passed"; // default, will be overridden by UI
+      res = await fetch(`/api/test-runs/${runId}/executions`, {
+        credentials: "include",
+        cache: "no-store",
       });
+      if (!res.ok) throw new Error("Failed to load executions");
+      const existingExecutions: ExecutionRecord[] = await res.json();
+
+      const initialExecutions: Record<string, ExecutionStatus> = {};
+      const initialNotes: Record<string, string> = {};
+      const initialRecords: Record<string, ExecutionRecord> = {};
+
+      cases.forEach((tc) => {
+        initialExecutions[tc.id] = "Passed";
+        initialNotes[tc.id] = "";
+      });
+
+      existingExecutions.forEach((ex) => {
+        initialExecutions[ex.testCaseId] = ex.status;
+        initialNotes[ex.testCaseId] = ex.notes || "";
+        initialRecords[ex.testCaseId] = ex;
+      });
+
       setExecutions(initialExecutions);
+      setExecutionNotes(initialNotes);
+      setExecutionRecords(initialRecords);
     } catch (err) {
       console.error("Failed to load run details:", err);
     }
@@ -173,8 +201,64 @@ export default function TestRunsPage() {
     void fetchRunDetails(run.id);
   };
 
-  const handleSetExecution = (testCaseId: string, status: ExecutionStatus) => {
+  const handleSetExecution = async (
+    testCaseId: string,
+    status: ExecutionStatus
+  ) => {
+    if (!selectedRun) return;
+
+    // Don't re-save if status hasn't changed
+    if (executions[testCaseId] === status) return;
+
+    // Optimistic local update
     setExecutions((prev) => ({ ...prev, [testCaseId]: status }));
+
+    try {
+      // Only create new executions; updating existing ones requires
+      // a PATCH /api/test-runs/[runId]/executions/[executionId] endpoint
+      // (planned for a future step)
+      if (executionRecords[testCaseId]) {
+        // Update local state only; server-side update not yet supported
+        setExecutionNotes((prev) => ({
+          ...prev,
+          [testCaseId]: executionNotes[testCaseId] || "",
+        }));
+        return;
+      }
+
+      const res = await fetch(`/api/test-runs/${selectedRun.id}/executions`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          testCaseId,
+          status,
+          notes: executionNotes[testCaseId] || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorBody = await res.json();
+        // Rollback optimistic update on duplicate
+        if (res.status === 409) {
+          setExecutions((prev) => ({
+            ...prev,
+            [testCaseId]: executionRecords[testCaseId]?.status || "Passed",
+          }));
+        }
+        throw new Error(errorBody.error || "Failed to save execution");
+      }
+
+      const created = await res.json();
+      setExecutionRecords((prev) => ({
+        ...prev,
+        [testCaseId]: created,
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save execution result");
+      // Rollback optimistic update
+      setExecutions((prev) => ({ ...prev, [testCaseId]: "Passed" }));
+    }
   };
 
   const handleSetNote = (testCaseId: string, value: string) => {
@@ -186,18 +270,28 @@ export default function TestRunsPage() {
     setSavingExecutions(true);
 
     try {
-      // Note: Individual execution saving requires the executions API endpoint
-      // which will be implemented in the next step. For now, statuses are
-      // captured in local state and shown below.
+      // Mark the test run as InProgress since executions are being recorded
+      const res = await fetch(`/api/test-runs/${selectedRun.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "InProgress" }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to update test run status");
+      }
+
+      // Update local run status
+      setTestRuns((prev) =>
+        prev.map((r) =>
+          r.id === selectedRun!.id ? { ...r, status: "InProgress" } : r
+        )
+      );
+
+      const executedCount = Object.keys(executionRecords).length;
       alert(
-        `Execution statuses captured locally for ${Object.keys(executions).length} test cases.\n\nStatuses:\n${Object.entries(executions)
-          .map(([tcId, status]) => {
-            const tc = runTestCases.find((c) => c.id === tcId);
-            return `  - ${tc?.testCaseId}: ${status}`;
-          }
-          )
-          .join("\n")}
-        \n\nSaving individual executions to the database requires the executions API (next step).`
+        `Execution results saved for ${executedCount} test case(s) in run "${selectedRun.name}".\n\nRun status updated to InProgress.`
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save executions");
@@ -431,21 +525,31 @@ export default function TestRunsPage() {
                     <td className="px-5 py-4">{tc.title}</td>
                     <td className="px-5 py-4">
                       <div className="flex gap-2">
-                        {["Passed", "Failed", "Blocked"].map((status) => (
-                          <button
-                            key={status}
-                            onClick={() =>
-                              handleSetExecution(tc.id, status as ExecutionStatus)
-                            }
-                            className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${
-                              executions[tc.id] === status
-                                ? "bg-indigo-600 text-white"
-                                : STATUS_VARIANTS[status as ExecutionStatus]
-                            }`}
-                          >
-                            {status}
-                          </button>
-                        ))}
+                        {["Passed", "Failed", "Blocked"].map((status) => {
+                          const serverStatus =
+                            executionRecords[tc.id]?.status;
+                          const isActive =
+                            serverStatus === status ||
+                            (executions[tc.id] === status && !serverStatus);
+                          return (
+                            <button
+                              key={status}
+                              onClick={() =>
+                                handleSetExecution(
+                                  tc.id,
+                                  status as ExecutionStatus
+                                )
+                              }
+                              className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${
+                                isActive
+                                  ? "bg-indigo-600 text-white"
+                                  : STATUS_VARIANTS[status as ExecutionStatus]
+                              }`}
+                            >
+                              {status}
+                            </button>
+                          );
+                        })}
                       </div>
                     </td>
                     <td className="px-5 py-4">
