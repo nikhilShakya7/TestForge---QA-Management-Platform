@@ -141,6 +141,7 @@ export default function TestCasesPage() {
     try {
       const res = await fetch("/api/test-cases", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
@@ -183,6 +184,7 @@ export default function TestCasesPage() {
     try {
       const res = await fetch(`/api/test-cases/${id}`, {
         method: "DELETE",
+        credentials: "include",
       });
 
       if (!res.ok) {
