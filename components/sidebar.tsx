@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -17,26 +17,31 @@ export default function Sidebar() {
   const router = useRouter();
   const [user, setUser] = useState<{ email: string | null; name: string | null } | null>(null);
 
-  // Fetch current user from session
-  async function loadUser() {
-    try {
-      const res = await fetch("/api/auth/me", {
-        cache: "no-store",
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-      }
-    } catch {
-      // Session not available yet
-    }
-  }
+  useEffect(() => {
+    let active = true;
 
-  // Load on mount
-  if (typeof window !== "undefined") {
-    loadUser();
-  }
+    async function loadUser() {
+      try {
+        const res = await fetch("/api/auth/me", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (active) setUser(data.user);
+        } else if (res.status !== 401) {
+          console.error("Failed to load current user:", res.status);
+        }
+      } catch (error) {
+        console.error("Failed to load current user:", error);
+      }
+    }
+
+    void loadUser();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleLogout() {
     try {

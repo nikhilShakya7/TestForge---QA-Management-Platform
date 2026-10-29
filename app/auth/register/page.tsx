@@ -71,7 +71,7 @@ export default function RegisterPage() {
               onChange={(e) =>
                 setFormData({ ...formData, name: e.target.value })
               }
-              className="block w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+              className="block w-full rounded-lg border border-slate-200  px-4 py-2.5 text-sm text-black-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
             />
           </div>
 
@@ -108,9 +108,7 @@ export default function RegisterPage() {
               }
               className="block w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
             />
-            <p className="mt-1 text-xs text-slate-500">
-              At least 8 characters
-            </p>
+            <p className="mt-1 text-xs text-slate-500">At least 8 characters</p>
           </div>
 
           <div>
@@ -121,7 +119,10 @@ export default function RegisterPage() {
               name="role"
               value={formData.role}
               onChange={(e) =>
-                setFormData({ ...formData, role: e.target.value as "TESTER" | "ADMIN" })
+                setFormData({
+                  ...formData,
+                  role: e.target.value as "TESTER" | "ADMIN",
+                })
               }
               className="block w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
             >
