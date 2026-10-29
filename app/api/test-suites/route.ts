@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
+import { getSessionFromRequest, getCurrentUser } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 const testSuiteSchema = z.object({
@@ -27,7 +28,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const parsed = testSuiteSchema.safeParse(body);
@@ -39,19 +40,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // TODO: Replace with the authenticated user's ID once auth is implemented.
-    const defaultUser = await prisma.user.findFirst();
-    if (!defaultUser) {
+    // Resolve the authenticated user from the session cookie
+    const session = getSessionFromRequest(request);
+    if (!session) {
       return NextResponse.json(
-        { error: "No users found. Seed the database first." },
-        { status: 400 }
+        { error: "Authentication required" },
+        { status: 401 }
       );
+    }
+
+    const user = await getCurrentUser(session.userId);
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     const testSuite = await prisma.testSuite.create({
       data: {
         ...parsed.data,
-        createdById: defaultUser.id,
+        createdById: user.id,
       },
       include: {
         createdBy: { select: { id: true, name: true, email: true } },

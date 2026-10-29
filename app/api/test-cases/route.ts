@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
+import { getSessionFromRequest, getCurrentUser } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 /**
@@ -154,20 +155,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // TODO: Replace with the authenticated user's ID once auth is implemented.
-    const defaultUser = await prisma.user.findFirst();
-    if (!defaultUser) {
+    // Resolve the authenticated user from the session cookie
+    const session = getSessionFromRequest(request);
+    if (!session) {
       return NextResponse.json(
-        { error: "No users found. Seed the database first." },
-        { status: 400 }
+        { error: "Authentication required" },
+        { status: 401 }
       );
+    }
+
+    const user = await getCurrentUser(session.userId);
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     const testCase = await prisma.testCase.create({
       data: {
         ...data,
         suiteId: suiteId ?? null,
-        createdById: defaultUser.id,
+        createdById: user.id,
       },
       include: {
         suite: { select: { id: true, name: true } },
