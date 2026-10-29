@@ -18,24 +18,30 @@ async function main() {
     },
   });
 
-  // Create test suites
-  const loginSuite = await prisma.testSuite.create({
-    data: {
+  // Create test suites (idempotent by name)
+  const loginSuite = await prisma.testSuite.upsert({
+    where: { id: "login-suite-seed" },
+    update: {},
+    create: {
+      id: "login-suite-seed",
       name: "Login Suite",
       description: "Tests covering user authentication flows",
       createdById: user.id,
     },
   });
 
-  const checkoutSuite = await prisma.testSuite.create({
-    data: {
+  const checkoutSuite = await prisma.testSuite.upsert({
+    where: { id: "checkout-suite-seed" },
+    update: {},
+    create: {
+      id: "checkout-suite-seed",
       name: "Checkout Suite",
       description: "Tests covering the purchase/checkout flow",
       createdById: user.id,
     },
   });
 
-  // Helper to create test cases
+  // Helper to create/update test cases idempotently (keyed on testCaseId)
   const createTestCase = (data: {
     testCaseId: string;
     title: string;
@@ -44,8 +50,19 @@ async function main() {
     priority: string;
     status: string;
   }) => {
-    return prisma.testCase.create({
-      data: {
+    return prisma.testCase.upsert({
+      where: { testCaseId: data.testCaseId },
+      update: {
+        title: data.title,
+        description: `Verify ${data.title.toLowerCase()}`,
+        preconditions: "User is on the application homepage",
+        steps: data.steps,
+        expectedResult: "Action completes successfully without errors",
+        priority: data.priority,
+        status: data.status,
+        suiteId: data.suiteId,
+      },
+      create: {
         testCaseId: data.testCaseId,
         title: data.title,
         description: `Verify ${data.title.toLowerCase()}`,

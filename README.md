@@ -20,6 +20,23 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Neon database
+
+The project uses Neon Postgres through Prisma. After signing in to the Neon CLI,
+initialize and deploy the configured Neon project to pull its connection strings
+into the existing `.env` file (or `.env.local` if `.env` does not exist):
+
+```bash
+npx neon@latest init -y --org-id org-dry-resonance-57053162 --project-id polished-cloud-16428697 --branch production --services postgres
+npx neon@latest deploy
+npm run db:push
+npm run db:seed
+```
+
+Prisma uses the pooled `DATABASE_URL` for application queries and the direct
+`DATABASE_URL_UNPOOLED` connection for schema changes. The seed command is
+optional and inserts sample QA data.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

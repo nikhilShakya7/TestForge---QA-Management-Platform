@@ -3,66 +3,64 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  name          String?
-  passwordHash  String
-  role          String    @default("TESTER") // ADMIN | TESTER
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  testCases             TestCase[]
-  testRuns              TestRun[]
-  testExecutions        TestExecution[]
-  defects               Defect[]
-  assignedDefects       Defect[] @relation("DefectAssignee")
-  testSuites            TestSuite[]
-  automatedResults      AutomatedTestResult[]
+  id               String                @id @default(uuid())
+  email            String                @unique
+  name             String?
+  passwordHash     String
+  role             String                @default("TESTER")
+  isActive         Boolean               @default(true)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  automatedResults AutomatedTestResult[]
+  assignedDefects  Defect[]              @relation("DefectAssignee")
+  defects          Defect[]
+  testCases        TestCase[]
+  testExecutions   TestExecution[]
+  testRuns         TestRun[]
+  testSuites       TestSuite[]
 
   @@index([email])
   @@index([role])
 }
 
 model TestSuite {
-  id            String      @id @default(uuid())
-  name          String
-  description   String?
-  createdById   String
-  createdBy     User        @relation(fields: [createdById], references: [id])
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-
-  testCases     TestCase[]
-  testRuns      TestRun[]
+  id          String     @id @default(uuid())
+  name        String
+  description String?
+  createdById String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  testCases   TestCase[]
+  testRuns    TestRun[]
+  createdBy   User       @relation(fields: [createdById], references: [id])
 
   @@index([createdById])
 }
 
 model TestCase {
-  id              String      @id @default(uuid())
-  testCaseId      String      @unique // e.g. TC-001
-  title           String
-  description     String?
-  preconditions   String?
-  steps           String      // stored as JSON string
-  expectedResult  String
-  priority        String      @default("Medium") // Low | Medium | High | Critical
-  status          String      @default("Draft")  // Draft | Active | Archived
-  suiteId         String?
-  suite           TestSuite?  @relation(fields: [suiteId], references: [id])
-  createdById     String
-  createdBy       User        @relation(fields: [createdById], references: [id])
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-
-  executions      TestExecution[]
-  defects         Defect[]
+  id             String          @id @default(uuid())
+  testCaseId     String          @unique
+  title          String
+  description    String?
+  preconditions  String?
+  steps          String
+  expectedResult String
+  priority       String          @default("Medium")
+  status         String          @default("Draft")
+  suiteId        String?
+  createdById    String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  defects        Defect[]
+  createdBy      User            @relation(fields: [createdById], references: [id])
+  suite          TestSuite?      @relation(fields: [suiteId], references: [id])
+  executions     TestExecution[]
 
   @@index([testCaseId])
   @@index([suiteId])
@@ -72,20 +70,19 @@ model TestCase {
 }
 
 model TestRun {
-  id            String      @id @default(uuid())
-  name          String
-  description   String?
-  status        String      @default("Planned") // Planned | InProgress | Completed
-  suiteId       String?
-  suite         TestSuite?  @relation(fields: [suiteId], references: [id])
-  createdById   String
-  createdBy     User        @relation(fields: [createdById], references: [id])
-  startedAt     DateTime?
-  completedAt   DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-
-  executions    TestExecution[]
+  id          String          @id @default(uuid())
+  name        String
+  description String?
+  status      String          @default("Planned")
+  suiteId     String?
+  createdById String
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  executions  TestExecution[]
+  createdBy   User            @relation(fields: [createdById], references: [id])
+  suite       TestSuite?      @relation(fields: [suiteId], references: [id])
 
   @@index([suiteId])
   @@index([createdById])
@@ -93,17 +90,16 @@ model TestRun {
 }
 
 model TestExecution {
-  id            String      @id @default(uuid())
-  status        String      // Passed | Failed | Blocked
-  notes         String?
-  executedAt    DateTime    @default(now())
-  executedById  String
-  executedBy    User        @relation(fields: [executedById], references: [id])
-
-  testCaseId    String
-  testCase      TestCase    @relation(fields: [testCaseId], references: [id])
-  testRunId     String
-  testRun       TestRun     @relation(fields: [testRunId], references: [id])
+  id           String   @id @default(uuid())
+  status       String
+  notes        String?
+  executedAt   DateTime @default(now())
+  executedById String
+  testCaseId   String
+  testRunId    String
+  executedBy   User     @relation(fields: [executedById], references: [id])
+  testCase     TestCase @relation(fields: [testCaseId], references: [id])
+  testRun      TestRun  @relation(fields: [testRunId], references: [id])
 
   @@unique([testCaseId, testRunId])
   @@index([testCaseId])
@@ -113,23 +109,23 @@ model TestExecution {
 }
 
 model Defect {
-  id              String   @id @default(uuid())
-  title           String
-  description     String?
-  reproSteps      String?
-  expectedResult  String?
-  actualResult    String?
-  severity        String   @default("Medium") // Low | Medium | High | Critical
-  priority        String   @default("Medium")
-  status          String   @default("Open")   // Open | InProgress | Resolved | Closed
-  testCaseId      String?
-  testCase        TestCase? @relation(fields: [testCaseId], references: [id])
-  reportedById    String
-  reportedBy      User     @relation(fields: [reportedById], references: [id])
-  assigneeId      String?
-  assignee        User?    @relation("DefectAssignee", fields: [assigneeId], references: [id])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(uuid())
+  title          String
+  description    String?
+  reproSteps     String?
+  expectedResult String?
+  actualResult   String?
+  severity       String    @default("Medium")
+  priority       String    @default("Medium")
+  status         String    @default("Open")
+  testCaseId     String?
+  reportedById   String
+  assigneeId     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  assignee       User?     @relation("DefectAssignee", fields: [assigneeId], references: [id])
+  reportedBy     User      @relation(fields: [reportedById], references: [id])
+  testCase       TestCase? @relation(fields: [testCaseId], references: [id])
 
   @@index([testCaseId])
   @@index([status])
@@ -140,9 +136,9 @@ model Defect {
 }
 
 model AutomatedTestResult {
-  id            String   @id @default(uuid())
-  runName       String   // e.g. "CI Playwright Run #42"
-  source        String   // e.g. "playwright" | "newman"
+  id            String                    @id @default(uuid())
+  runName       String
+  source        String
   total         Int
   passed        Int
   failed        Int
@@ -150,26 +146,24 @@ model AutomatedTestResult {
   ciUrl         String?
   ciArtifactUrl String?
   createdById   String?
-  createdBy     User?    @relation(fields: [createdById], references: [id])
-  createdAt     DateTime @default(now())
-
+  createdAt     DateTime                  @default(now())
   results       AutomatedTestCaseResult[]
+  createdBy     User?                     @relation(fields: [createdById], references: [id])
 
   @@index([source])
   @@index([createdAt])
 }
 
 model AutomatedTestCaseResult {
-  id            String   @id @default(uuid())
-  testName      String
-  status        String   // passed | failed | skipped
-  durationMs    Int?
-  errorMessage  String?
-  errorStack    String?
-  screenshotUrl String?
-  traceUrl      String?
-  ciJobUrl      String?
-
+  id                String              @id @default(uuid())
+  testName          String
+  status            String
+  durationMs        Int?
+  errorMessage      String?
+  errorStack        String?
+  screenshotUrl     String?
+  traceUrl          String?
+  ciJobUrl          String?
   automatedResultId String
   automatedResult   AutomatedTestResult @relation(fields: [automatedResultId], references: [id], onDelete: Cascade)
 
