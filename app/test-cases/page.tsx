@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import ConfirmDialog from "@/components/dialogs/ConfirmDialog";
 import TestCaseCard from "@/components/cards/test-case-card";
+import { useRouter } from "next/navigation";
 
 type TestCase = {
   id: string;
@@ -100,6 +101,11 @@ export default function TestCasesPage() {
     projectId: string | null;
   } | null>(null);
   const [editingSubmitting, setEditingSubmitting] = useState(false);
+
+  // Delete confirmation state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteTargetCaseId, setDeleteTargetCaseId] = useState<string | null>(null);
 
   // Fetch available projects for the dropdown
   const fetchProjects = useCallback(async () => {
@@ -283,22 +289,29 @@ export default function TestCasesPage() {
     }
   };
 
-  const handleDelete = async (id: string, testCaseId: string) => {
-    if (!window.confirm(`Delete test case ${testCaseId}?`)) return;
+  const handleDelete = (id: string, testCaseId: string) => {
+    setDeleteTargetId(id);
+    setDeleteTargetCaseId(testCaseId);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
 
     try {
-      const res = await fetch(`/api/test-cases/${id}`, {
+      const res = await fetch(`/api/test-cases/${deleteTargetId}`, {
         method: "DELETE",
         credentials: "include",
       });
 
       if (!res.ok) {
         const errorBody = await res.json();
-        setError(errorBody.error || "Failed to delete test case");
-        return;
+        throw new Error(errorBody.error || "Failed to delete test case");
       }
 
-      setTestCases((prev) => prev.filter((tc) => tc.id !== id));
+      setTestCases((prev) =>
+        prev.filter((testCase) => testCase.id !== deleteTargetId)
+      );
       setMeta((prev) => {
         if (!prev) return prev;
         const total = Math.max(0, prev.total - 1);
@@ -312,6 +325,10 @@ export default function TestCasesPage() {
       setError(
         err instanceof Error ? err.message : "Failed to delete test case"
       );
+    } finally {
+      setShowDeleteConfirm(false);
+      setDeleteTargetId(null);
+      setDeleteTargetCaseId(null);
     }
   };
 
@@ -944,6 +961,20 @@ export default function TestCasesPage() {
           TestForge · QA Management Platform
         </p>
       </section>
+      {showDeleteConfirm && (
+        <ConfirmDialog
+          isOpen={showDeleteConfirm}
+          onConfirm={confirmDelete}
+          onCancel={() => {
+            setShowDeleteConfirm(false);
+            setDeleteTargetId(null);
+            setDeleteTargetCaseId(null);
+          }}
+          title="Delete Test Case"
+          message={`Are you sure you want to delete test case "${deleteTargetCaseId}"?`}
+          danger
+        />
+      )}
     </main>
   );
 }

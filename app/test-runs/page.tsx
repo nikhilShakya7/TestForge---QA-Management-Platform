@@ -6,6 +6,7 @@ import TestRunCard, {
   TestRunCardSkeleton,
 } from "@/components/cards/test-run-card";
 import TestResultCard from "@/components/cards/test-result-card";
+import ConfirmDialog from "@/components/dialogs/ConfirmDialog";
 
 type TestRun = {
   id: string;
@@ -101,6 +102,10 @@ export default function TestRunsPage() {
   const [executionRecords, setExecutionRecords] = useState<Record<string, ExecutionRecord>>({});
   const [savingExecutions, setSavingExecutions] = useState(false);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [selectedExecutionTestCaseId, setSelectedExecutionTestCaseId] = useState<string | null>(null);
   const [executionHistory, setExecutionHistory] = useState<ExecutionHistoryRecord[]>([]);
@@ -300,13 +305,14 @@ export default function TestRunsPage() {
     void fetchRunDetails(run);
   };
 
-  const handleDeleteRun = async (id: string, name: string) => {
-    if (
-      !window.confirm(
-        `Delete test run "${name}" and all its execution results and history? This cannot be undone.`
-      )
-    ) return;
+  const handleDeleteRun = (id: string, name: string) => {
+    setDeleteTarget({ id, name });
+  };
 
+  const confirmDeleteRun = async () => {
+    if (!deleteTarget) return;
+    const { id } = deleteTarget;
+    setDeleteTarget(null);
     setDeletingRunId(id);
 
     try {
@@ -928,6 +934,14 @@ export default function TestRunsPage() {
           TestForge · QA Management Platform
         </p>
       </section>
+      <ConfirmDialog
+        isOpen={deleteTarget !== null}
+        onConfirm={() => void confirmDeleteRun()}
+        onCancel={() => setDeleteTarget(null)}
+        title="Delete Test Run"
+        message={`Delete test run "${deleteTarget?.name ?? ""}" and all its execution results and history? This cannot be undone.`}
+        danger
+      />
     </main>
   );
 }

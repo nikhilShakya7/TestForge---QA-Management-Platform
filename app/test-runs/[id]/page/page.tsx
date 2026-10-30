@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import TestResultCard from "@/components/cards/test-result-card";
+import ConfirmDialog from "@/components/dialogs/ConfirmDialog";
 
 type TestRun = {
   id: string;
@@ -36,6 +37,7 @@ export default function TestRunDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const testRunId = typeof window !== "undefined"
     ? new URLSearchParams(window.location.search).get("id")
@@ -66,11 +68,6 @@ export default function TestRunDetailPage() {
 
   const handleDelete = async () => {
     if (!testRunId || !testRun) return;
-    if (
-      !window.confirm(
-        `Delete test run "${testRun.name}" and all its execution results and history? This cannot be undone.`
-      )
-    ) return;
 
     setDeleting(true);
     setError(null);
@@ -134,7 +131,7 @@ export default function TestRunDetailPage() {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => void handleDelete()}
+              onClick={() => setShowDeleteConfirm(true)}
               disabled={deleting}
               className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -219,6 +216,18 @@ export default function TestRunDetailPage() {
           TestForge · QA Management Platform
         </p>
       </section>
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        onConfirm={() => {
+          setShowDeleteConfirm(false);
+          void handleDelete();
+        }}
+        onCancel={() => setShowDeleteConfirm(false)}
+        title="Delete Test Run"
+        message={`Delete test run "${testRun.name}" and all its execution results and history? This cannot be undone.`}
+        confirmText="Delete"
+        danger
+      />
     </main>
   );
 }

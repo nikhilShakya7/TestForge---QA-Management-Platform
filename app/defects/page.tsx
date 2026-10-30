@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import ConfirmDialog from "@/components/dialogs/ConfirmDialog";
 import {
   AlertCircle,
   Bug,
@@ -360,6 +361,10 @@ export default function DefectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<DefectResponse["meta"] | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -566,9 +571,7 @@ export default function DefectsPage() {
     }
   };
 
-  const handleDelete = async (id: string, title: string) => {
-    if (!window.confirm(`Delete defect "${title}"?`)) return;
-
+  const handleDelete = async (id: string) => {
     try {
       const res = await fetch(`/api/defects/${id}`, {
         method: "DELETE",
@@ -581,6 +584,8 @@ export default function DefectsPage() {
       await fetchDefects();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete defect");
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -1225,7 +1230,9 @@ export default function DefectsPage() {
                     defect={defect}
                     onOpen={() => openDefect(defect.id)}
                     onEdit={() => openEdit(defect)}
-                    onDelete={() => handleDelete(defect.id, defect.title)}
+                    onDelete={() =>
+                      setDeleteTarget({ id: defect.id, title: defect.title })
+                    }
                     onInlineUpdate={(field, value) =>
                       handleInlineUpdate(defect.id, field, value)
                     }
@@ -1252,6 +1259,18 @@ export default function DefectsPage() {
           TestForge · QA Management Platform
         </footer>
       </section>
+      <ConfirmDialog
+        isOpen={deleteTarget !== null}
+        onConfirm={() => {
+          if (deleteTarget) {
+            void handleDelete(deleteTarget.id);
+          }
+        }}
+        onCancel={() => setDeleteTarget(null)}
+        title="Delete Defect"
+        message={`Are you sure you want to delete defect "${deleteTarget?.title ?? ""}"?`}
+        danger
+      />
     </main>
   );
 }

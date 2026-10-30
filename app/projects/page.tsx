@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import ProjectCard from "@/components/cards/project-card";
+import ConfirmDialog from "@/components/dialogs/ConfirmDialog";
 
 type Project = {
   id: string;
@@ -73,6 +74,10 @@ export default function ProjectsPage() {
   const [creatingSubmitting, setCreatingSubmitting] = useState(false);
   const [editingSubmitting, setEditingSubmitting] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -201,14 +206,14 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleArchive = async (id: string, name: string) => {
-    if (
-      !window.confirm(
-        `Archive project "${name}"? This cannot be undone if the project has test cases, test runs, or defects.`
-      )
-    )
-      return;
+  const handleArchive = (id: string, name: string) => {
+    setArchiveTarget({ id, name });
+  };
 
+  const confirmArchive = async () => {
+    if (!archiveTarget) return;
+    const { id } = archiveTarget;
+    setArchiveTarget(null);
     setArchivingId(id);
 
     try {
@@ -422,6 +427,15 @@ export default function ProjectsPage() {
           TestForge · QA Management Platform
         </p>
       </section>
+      <ConfirmDialog
+        isOpen={archiveTarget !== null}
+        onConfirm={() => void confirmArchive()}
+        onCancel={() => setArchiveTarget(null)}
+        title="Archive Project"
+        message={`Archive project "${archiveTarget?.name ?? ""}"? This cannot be undone if the project has test cases, test runs, or defects.`}
+        confirmText="Archive"
+        danger
+      />
     </main>
   );
 }
