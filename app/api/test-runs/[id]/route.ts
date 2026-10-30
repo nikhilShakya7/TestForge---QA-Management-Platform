@@ -139,28 +139,29 @@ export async function DELETE(
 
     const { id } = await params;
 
-    const existing = await prisma.testRun.findUnique({
-      where: { id, createdById: session.userId },
-      include: { _count: { select: { executions: true } } },
+    const deletedRunName = await prisma.$transaction(async (transaction) => {
+      const existing = await transaction.testRun.findUnique({
+        where: { id, createdById: session.userId },
+        select: { name: true },
+      });
+
+      if (!existing) return null;
+
+      await transaction.testExecutionHistory.deleteMany({
+        where: { testExecution: { testRunId: id } },
+      });
+      await transaction.testExecution.deleteMany({ where: { testRunId: id } });
+      await transaction.testRun.delete({ where: { id } });
+
+      return existing.name;
     });
 
-    if (!existing) {
+    if (deletedRunName === null) {
       return NextResponse.json(
         { error: `Test run "${id}" not found` },
         { status: 404 }
       );
     }
-
-    if (existing._count.executions > 0) {
-      return NextResponse.json(
-        {
-          error: `Cannot delete test run "${existing.name}": it has ${existing._count.executions} execution(s). Remove those first.`,
-        },
-        { status: 409 }
-      );
-    }
-
-    await prisma.testRun.delete({ where: { id } });
 
     return NextResponse.json({ message: "Test run deleted successfully" });
   } catch (error) {

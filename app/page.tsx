@@ -117,7 +117,7 @@ export default function Home() {
   const passed = metrics.executions.byStatus.Passed ?? 0;
   const failed = metrics.executions.byStatus.Failed ?? 0;
   const blocked = metrics.executions.byStatus.Blocked ?? 0;
-  const totalExecutions = metrics.executions.total ?? 0;
+  const totalExecutions = metrics.executions.total;
   const passedPct = totalExecutions > 0 ? Math.round((passed / totalExecutions) * 100) : 0;
   const failedPct = totalExecutions > 0 ? Math.round((failed / totalExecutions) * 100) : 0;
   const blockedPct = totalExecutions > 0 ? Math.round((blocked / totalExecutions) * 100) : 0;

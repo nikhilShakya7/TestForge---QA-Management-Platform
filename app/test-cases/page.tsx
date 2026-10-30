@@ -318,7 +318,9 @@ export default function TestCasesPage() {
       });
 
       if (!res.ok) {
-        throw new Error("Failed to delete test case");
+        const errorBody = await res.json();
+        setError(errorBody.error || "Failed to delete test case");
+        return;
       }
 
       setTestCases((prev) => prev.filter((tc) => tc.id !== id));
@@ -731,7 +733,7 @@ export default function TestCasesPage() {
                 </label>
                 <select
                   name="suiteId"
-                  value={editFormData.suiteId}
+                  value={editFormData.suiteId ?? ""}
                   onChange={(e) =>
                     setEditFormData((prev) =>
                       prev ? { ...prev, suiteId: e.target.value } : prev
@@ -947,8 +949,11 @@ export default function TestCasesPage() {
                   testCases.map((tc) => (
                     <tr
                       key={tc.id}
-                      className="hover:bg-slate-50 transition-colors"
-                    >
+                      className="hover:bg-slate-50 transition-colors cursor-pointer"
+                      onClick={() => {
+                        window.location.href = `/test-cases/${tc.id}`;
+                      }}
+                      >
                       <td className="px-5 py-4 font-medium text-slate-900">
                         {tc.testCaseId}
                       </td>
@@ -971,13 +976,19 @@ export default function TestCasesPage() {
                       <td className="px-5 py-4">
                         <div className="flex gap-1">
                           <button
-                            onClick={() => openEdit(tc)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEdit(tc);
+                            }}
                             className="text-xs text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
                           >
                             Edit
                           </button>
                           <button
-                            onClick={() => handleDelete(tc.id, tc.testCaseId)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(tc.id, tc.testCaseId)
+                            }}
                             className="text-xs text-red-600 hover:text-red-700 underline underline-offset-4"
                           >
                             Delete

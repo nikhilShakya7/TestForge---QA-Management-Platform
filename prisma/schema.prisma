@@ -49,6 +49,7 @@ model User {
   testRuns         TestRun[]
   testSuites       TestSuite[]
   projects         Project[]
+  testExecutionHistories TestExecutionHistory[]
 
   @@index([email])
   @@index([role])
@@ -126,6 +127,7 @@ model TestRun {
 model TestExecution {
   id           String   @id @default(uuid())
   status       String
+  actualResult String?    // Actual result observed during execution
   notes        String?
   executedAt   DateTime @default(now())
   executedById String
@@ -134,12 +136,29 @@ model TestExecution {
   executedBy   User     @relation(fields: [executedById], references: [id])
   testCase     TestCase @relation(fields: [testCaseId], references: [id])
   testRun      TestRun  @relation(fields: [testRunId], references: [id])
+  history      TestExecutionHistory[]
 
   @@unique([testCaseId, testRunId])
   @@index([testCaseId])
   @@index([testRunId])
   @@index([status])
   @@index([executedById])
+}
+
+model TestExecutionHistory {
+  id              String   @id @default(uuid())
+  status          String   // The status at this point in history
+  actualResult    String?  // Actual result at this point in history
+  notes           String?  // Notes at this point in history
+  changedAt       DateTime @default(now())
+  changedById     String   // Who made the change
+  changedBy       User     @relation(fields: [changedById], references: [id])
+  testExecutionId String   // Reference to the TestExecution
+  testExecution   TestExecution @relation(fields: [testExecutionId], references: [id])
+
+  @@index([testExecutionId])
+  @@index([changedById])
+  @@index([changedAt])
 }
 
 model Defect {

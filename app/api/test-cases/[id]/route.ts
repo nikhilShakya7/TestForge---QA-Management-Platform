@@ -86,6 +86,57 @@ export async function DELETE(
 }
 
 /**
+ * GET /api/test-cases/[id]
+ * Get a single test case by ID.
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = getSessionFromRequest(request);
+    if (!session) {
+      return NextResponse.json(
+        { error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
+    const { id } = await params;
+
+    const testCase = await prisma.testCase.findUnique({
+      where: { id, createdById: session.userId },
+      include: {
+        suite: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true, key: true } },
+        createdBy: { select: { id: true, name: true, email: true } },
+        executions: {
+          include: {
+            executedBy: { select: { id: true, name: true, email: true } },
+          },
+          orderBy: { executedAt: "desc" },
+        },
+      },
+    });
+
+    if (!testCase) {
+      return NextResponse.json(
+        { error: `Test case "${id}" not found` },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(testCase);
+  } catch (error) {
+    console.error("GET /api/test-cases/[id] error:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch test case" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * PATCH /api/test-cases/[id]
  * Update an existing test case. Historical execution results are preserved.
  */

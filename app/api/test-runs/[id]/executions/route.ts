@@ -6,10 +6,15 @@ import prisma from "@/lib/prisma";
 const executionSchema = z.object({
   testCaseId: z.string({ message: "Test case ID is required" }),
   status: z.enum(["Passed", "Failed", "Blocked"]),
+  actualResult: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   executedAt: z.string().optional().nullable(),
 });
 
+/**
+ * GET /api/test-runs/[id]/executions
+ * Get all executions for a test run.
+ */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -51,6 +56,10 @@ export async function GET(
   }
 }
 
+/**
+ * POST /api/test-runs/[id]/executions
+ * Create a new test execution result.
+ */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -117,6 +126,7 @@ export async function POST(
     const execution = await prisma.testExecution.create({
       data: {
         status: parsed.data.status,
+        actualResult: parsed.data.actualResult ?? null,
         notes: parsed.data.notes ?? null,
         executedAt: parsed.data.executedAt
           ? new Date(parsed.data.executedAt)

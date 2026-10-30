@@ -33,6 +33,7 @@ type TestCaseForRun = {
   id: string;
   testCaseId: string;
   title: string;
+  expectedResult: string;
   priority: string;
   status: string;
 };
@@ -43,9 +44,19 @@ type ExecutionRecord = {
   id: string;
   testCaseId: string;
   status: ExecutionStatus;
+  actualResult: string | null;
   notes: string | null;
   executedAt: string;
   executedBy: { id: string; name: string | null; email: string } | null;
+};
+
+type ExecutionHistoryRecord = {
+  id: string;
+  status: string;
+  actualResult: string | null;
+  notes: string | null;
+  changedAt: string;
+  changedBy: { id: string; name: string | null; email: string } | null;
 };
 
 const STATUS_VARIANTS: Record<ExecutionStatus, string> = {
@@ -77,8 +88,17 @@ export default function TestRunsPage() {
   const [runTestCases, setRunTestCases] = useState<TestCaseForRun[]>([]);
   const [executions, setExecutions] = useState<Record<string, ExecutionStatus>>({});
   const [executionNotes, setExecutionNotes] = useState<Record<string, string>>({});
+  const [executionActualResults, setExecutionActualResults] = useState<Record<string, string>>({});
   const [executionRecords, setExecutionRecords] = useState<Record<string, ExecutionRecord>>({});
   const [savingExecutions, setSavingExecutions] = useState(false);
+  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Execution history modal state
+  const [showExecutionHistory, setShowExecutionHistory] = useState(false);
+  const [selectedExecutionTestCaseId, setSelectedExecutionTestCaseId] = useState<string | null>(null);
+  const [executionHistory, setExecutionHistory] = useState<ExecutionHistoryRecord[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Fetch available projects for the dropdown
   const fetchProjects = async () => {
@@ -177,6 +197,7 @@ export default function TestRunsPage() {
         id: tc.id,
         testCaseId: tc.testCaseId,
         title: tc.title,
+        expectedResult: tc.expectedResult,
         priority: tc.priority,
         status: tc.status,
       }));
@@ -191,16 +212,18 @@ export default function TestRunsPage() {
 
       const initialExecutions: Record<string, ExecutionStatus> = {};
       const initialNotes: Record<string, string> = {};
+      const initialActualResults: Record<string, string | null> = {};
       const initialRecords: Record<string, ExecutionRecord> = {};
 
       cases.forEach((tc) => {
-        initialExecutions[tc.id] = "Passed";
         initialNotes[tc.id] = "";
+        initialActualResults[tc.id] = "";
       });
 
       existingExecutions.forEach((ex) => {
         initialExecutions[ex.testCaseId] = ex.status;
         initialNotes[ex.testCaseId] = ex.notes || "";
+        initialActualResults[ex.testCaseId] = ex.actualResult || "";
         initialRecords[ex.testCaseId] = ex;
       });
 
@@ -258,6 +281,44 @@ export default function TestRunsPage() {
     void fetchRunDetails(run.id);
   };
 
+  const handleDeleteRun = async (id: string, name: string) => {
+    if (
+      !window.confirm(
+        `Delete test run "${name}" and all its execution results and history? This cannot be undone.`
+      )
+    ) return;
+
+    setDeletingRunId(id);
+
+    try {
+      const res = await fetch(`/api/test-runs/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const errorBody = await res.json();
+        setError(errorBody.error || "Failed to delete test run");
+        setDeletingRunId(null);
+        return;
+      }
+
+      setTestRuns((prev) => prev.filter((r) => r.id !== id));
+      if (selectedRun?.id === id) {
+        setSelectedRun(null);
+        setRunTestCases([]);
+        setExecutions({});
+        setExecutionNotes({});
+        setExecutionActualResults({});
+        setExecutionRecords({});
+      }
+      setDeletingRunId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete test run");
+      setDeletingRunId(null);
+    }
+  };
+
   const handleSetExecution = async (
     testCaseId: string,
     status: ExecutionStatus
@@ -267,12 +328,34 @@ export default function TestRunsPage() {
     if (executions[testCaseId] === status) return;
 
     setExecutions((prev) => ({ ...prev, [testCaseId]: status }));
+    setHasUnsavedChanges(true);
 
     try {
       if (executionRecords[testCaseId]) {
-        setExecutionNotes((prev) => ({
+        // Update existing execution via PATCH
+        const res = await fetch(
+          `/api/test-runs/${selectedRun.id}/executions/${executionRecords[testCaseId].id}`,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              status,
+              actualResult: executionActualResults[testCaseId] || null,
+              notes: executionNotes[testCaseId] || null,
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          const errorBody = await res.json();
+          throw new Error(errorBody.error || "Failed to update execution");
+        }
+
+        const updated = await res.json();
+        setExecutionRecords((prev) => ({
           ...prev,
-          [testCaseId]: executionNotes[testCaseId] || "",
+          [testCaseId]: updated,
         }));
         return;
       }
@@ -285,6 +368,7 @@ export default function TestRunsPage() {
           testCaseId,
           status,
           notes: executionNotes[testCaseId] || null,
+          actualResult: executionActualResults[testCaseId] || null,
         }),
       });
 
@@ -312,6 +396,12 @@ export default function TestRunsPage() {
 
   const handleSetNote = (testCaseId: string, value: string) => {
     setExecutionNotes((prev) => ({ ...prev, [testCaseId]: value }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleSetActualResult = (testCaseId: string, value: string) => {
+    setExecutionActualResults((prev) => ({ ...prev, [testCaseId]: value }));
+    setHasUnsavedChanges(true);
   };
 
   const handleSaveExecutions = async () => {
@@ -319,6 +409,44 @@ export default function TestRunsPage() {
     setSavingExecutions(true);
 
     try {
+      // Save all pending test case executions via PATCH
+      const savePromises = Object.entries(executionRecords).map(
+        async ([testCaseId, execution]) => {
+          const currentStatus = executions[testCaseId];
+          const currentNotes = executionNotes[testCaseId] || null;
+          const currentActualResult =
+            executionActualResults[testCaseId] || null;
+
+          // Only save if there's an actual change from server record
+          if (
+            execution.status === currentStatus &&
+            execution.notes === (currentNotes || "") &&
+            execution.actualResult === (currentActualResult || null)
+          ) {
+            return;
+          }
+
+          return fetch(`/api/test-runs/${selectedRun.id}/executions/${execution.id}`, {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              status: currentStatus,
+              actualResult: currentActualResult,
+              notes: currentNotes,
+            }),
+          });
+        }
+      );
+
+      const results = await Promise.all(savePromises);
+
+      const failedSaves = results.filter((r) => r && !r.ok);
+      if (failedSaves.length > 0) {
+        throw new Error(`Failed to save ${failedSaves.length} execution(s)`);
+      }
+
+      // Update run status to InProgress
       const res = await fetch(`/api/test-runs/${selectedRun.id}`, {
         method: "PATCH",
         credentials: "include",
@@ -336,12 +464,85 @@ export default function TestRunsPage() {
         )
       );
 
-      const executedCount = Object.keys(executionRecords).length;
+      const executedCount = executionRecords.length;
       alert(
         `Execution results saved for ${executedCount} test case(s) in run "${selectedRun.name}".\n\nRun status updated to InProgress.`
       );
+      setHasUnsavedChanges(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save executions");
+    } finally {
+      setSavingExecutions(false);
+    }
+  };
+
+  const handleCompleteRun = async () => {
+    if (!selectedRun) return;
+
+    // First save all pending executions
+    const savePromises = Object.entries(executionRecords).map(
+      ([testCaseId, execution]) => {
+        const currentStatus = executions[testCaseId];
+        const currentNotes = executionNotes[testCaseId] || null;
+        const currentActualResult =
+          executionActualResults[testCaseId] || null;
+
+        if (
+          execution.status === currentStatus &&
+          execution.notes === (currentNotes || "") &&
+          execution.actualResult === (currentActualResult || null)
+        ) {
+          return;
+        }
+
+        return fetch(`/api/test-runs/${selectedRun.id}/executions/${execution.id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: currentStatus,
+            actualResult: currentActualResult,
+            notes: currentNotes,
+          }),
+        });
+      }
+    );
+
+    try {
+      const results = await Promise.all(savePromises);
+      const failedSaves = results.filter((r) => r && !r.ok);
+      if (failedSaves.length > 0) {
+        throw new Error(`Failed to save ${failedSaves.length} execution(s)`);
+      }
+
+      // Complete the test run
+      const res = await fetch(`/api/test-runs/${selectedRun.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Completed" }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to complete test run");
+      }
+
+      setTestRuns((prev) =>
+        prev.map((r) =>
+          r.id === selectedRun!.id ? { ...r, status: "Completed" } : r
+        )
+      );
+
+      setSelectedRun((prev) =>
+        prev ? { ...prev, status: "Completed" } : null
+      );
+
+      setHasUnsavedChanges(false);
+      alert(
+        `Test run "${selectedRun.name}" completed successfully.\n${Object.keys(executionRecords).length} test case(s) executed.`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to complete test run");
     } finally {
       setSavingExecutions(false);
     }
@@ -350,6 +551,36 @@ export default function TestRunsPage() {
   const runStats = (run: TestRun) => {
     const total = run._count?.executions ?? 0;
     return { total, passed: 0, failed: 0, blocked: 0 };
+  };
+
+  // Execution history functions
+  const openExecutionHistory = async (testCaseId: string) => {
+    setSelectedExecutionTestCaseId(testCaseId);
+    setExecutionHistory([]);
+    setLoadingHistory(true);
+
+    try {
+      const res = await fetch(
+        `/api/test-runs/${selectedRun!.id}/executions/${testCaseId}/history`,
+        {
+          credentials: "include",
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        }
+      );
+      if (!res.ok) throw new Error("Failed to load execution history");
+      const data: ExecutionHistoryRecord[] = await res.json();
+      setExecutionHistory(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load execution history");
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const closeExecutionHistory = () => {
+    setSelectedExecutionTestCaseId(null);
+    setExecutionHistory([]);
   };
 
   return (
@@ -517,7 +748,8 @@ export default function TestRunsPage() {
                 No test runs yet. Create one to get started.
               </div>
             ) : (
-              <table className="w-full text-left text-sm divide-y divide-slate-100">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm divide-y divide-slate-100">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-5 py-3 font-medium">Name</th>
@@ -535,7 +767,12 @@ export default function TestRunsPage() {
                     return (
                       <tr
                         key={run.id}
-                        onClick={() => handleSelectRun(run)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const params = new URLSearchParams(window.location.search);
+                          params.set("id", run.id);
+                          window.location.href = `/test-runs/[id]/page?id=${run.id}`;
+                        }}
                         className={`cursor-pointer hover:bg-slate-50 transition-colors ${
                           isSelected ? "bg-indigo-50" : ""
                         }`}
@@ -562,21 +799,34 @@ export default function TestRunsPage() {
                           {run.createdBy?.name || run.createdBy?.email || "—"}
                         </td>
                         <td className="px-5 py-4">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSelectRun(run);
-                            }}
-                            className="text-sm text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
-                          >
-                            View / Record Results
-                          </button>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectRun(run);
+                              }}
+                              className="text-sm text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
+                            >
+                              View / Record Results
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleDeleteRun(run.id, run.name);
+                              }}
+                              disabled={deletingRunId === run.id}
+                              className="text-xs text-red-600 hover:text-red-700 underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {deletingRunId === run.id ? "Deleting…" : "Delete"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
-              </table>
+                </table>
+              </div>
             )}
           </div>
         )}
@@ -598,94 +848,120 @@ export default function TestRunsPage() {
               </span>
             </div>
 
-            <table className="w-full text-left text-sm divide-y divide-slate-100">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm divide-y divide-slate-100">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
                   <th className="px-5 py-3 font-medium">Test Case ID</th>
                   <th className="px-5 py-3 font-medium">Title</th>
                   <th className="px-5 py-3 font-medium">Result</th>
+                  <th className="px-5 py-3 font-medium">Expected Result</th>
+                  <th className="px-5 py-3 font-medium">Actual Result</th>
                   <th className="px-5 py-3 font-medium">Notes</th>
+                  <th className="px-5 py-3 font-medium">History</th>
                 </tr>
               </thead>
               <tbody>
-                {runTestCases.map((tc) => (
-                  <tr key={tc.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-4 font-medium text-slate-900">
-                      {tc.testCaseId}
-                    </td>
-                    <td className="px-5 py-4">{tc.title}</td>
-                    <td className="px-5 py-4">
-                      <div className="flex gap-2">
-                        {["Passed", "Failed", "Blocked"].map((status) => {
-                          const serverStatus =
-                            executionRecords[tc.id]?.status;
-                          const isActive =
-                            serverStatus === status ||
-                            (executions[tc.id] === status && !serverStatus);
-                          return (
-                            <button
-                              key={status}
-                              onClick={() =>
-                                handleSetExecution(
-                                  tc.id,
-                                  status as ExecutionStatus
-                                )
-                              }
-                              className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${
-                                isActive
-                                  ? "bg-indigo-600 text-white"
-                                  : STATUS_VARIANTS[status as ExecutionStatus]
-                              }`}
-                            >
-                              {status}
-                            </button>
-                          );
-                        })}
+                {runTestCases.map((tc) => {
+                  return (
+                    <tr key={tc.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-4 font-medium text-slate-900">
+                        {tc.testCaseId}
+                      </td>
+                      <td className="px-5 py-4">{tc.title}</td>
+                      <td className="px-5 py-4">
+                        <div className="flex gap-2">
+                          {["Passed", "Failed", "Blocked"].map((status) => {
+                            const isActive =
+                              executions[tc.id] === status;
+                            return (
+                              <button
+                                key={status}
+                                onClick={() =>
+                                  handleSetExecution(
+                                    tc.id,
+                                    status as ExecutionStatus
+                                  )
+                                }
+                                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${
+                                  isActive
+                                    ? "bg-indigo-600 text-white"
+                                    : STATUS_VARIANTS[status as ExecutionStatus]
+                                }`}
+                              >
+                                {status}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="text-sm text-slate-600">
+                          {tc.expectedResult || "—"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <input
+                          type="text"
+                          placeholder="Actual result…"
+                          value={executionActualResults[tc.id] || ""}
+                          onChange={(e) =>
+                            handleSetActualResult(tc.id, e.target.value)
+                          }
+                          className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+                        />
+                      </td>
+                      <td className="px-5 py-4">
+                        <button
+                          onClick={() => openExecutionHistory(tc.id)}
+                          className="text-xs text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
+                        >
+                          View History
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={7} className="px-5 py-4">
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <button
+                        type="button"
+                        onClick={handleSaveExecutions}
+                        disabled={savingExecutions || !hasUnsavedChanges}
+                        className={`w-full sm:w-auto rounded-lg bg-indigo-600 text-white text-sm font-medium px-6 py-2.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${savingExecutions || !hasUnsavedChanges ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                      >
+                        {savingExecutions ? 'Saving…' : 'Save Execution Results'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCompleteRun}
+                        disabled={savingExecutions || !hasUnsavedChanges}
+                        className={`w-full sm:w-auto rounded-lg bg-blue-600 text-white text-sm font-medium px-6 py-2.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${savingExecutions || !hasUnsavedChanges ? 'bg-slate-400' : 'bg-blue-600 hover:bg-blue-700'}`}
+                      >
+                        {savingExecutions ? 'Saving…' : 'Complete Test Run'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRun(null)}
+                        className="w-full sm:w-auto rounded-lg border border-slate-200 bg-white px-6 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                      >
+                        Back to List
+                      </button>
                       </div>
                     </td>
-                    <td className="px-5 py-4">
-                      <input
-                        type="text"
-                        placeholder="Execution notes…"
-                        value={executionNotes[tc.id] || ""}
-                        onChange={(e) =>
-                          handleSetNote(tc.id, e.target.value)
-                        }
-                        className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                      />
-                    </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div className="mt-6 flex gap-2">
-              <button
-                onClick={handleSaveExecutions}
-                disabled={savingExecutions}
-                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
-                  savingExecutions
-                    ? "bg-slate-400 text-slate-200"
-                    : "bg-indigo-600 text-white hover:bg-indigo-700"
-                }`}
-              >
-                {savingExecutions ? "Saving…" : "Save Execution Results"}
-              </button>
-              <button
-                onClick={() => setSelectedRun(null)}
-                className="px-4 py-2.5 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200"
-              >
-                Back to List
-              </button>
+                </tfoot>
+              </table>
             </div>
           </div>
         )}
 
         {selectedRun && runTestCases.length === 0 && (
           <div className="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-lg font-semibold mb-2">
-              {selectedRun.name}
-            </h3>
+            <h3 className="text-lg font-semibold mb-2">{selectedRun.name}</h3>
             <p className="text-sm text-slate-500">
               No test cases in this run. Add test cases to a suite first, or
               create a test run with a suite that has test cases.

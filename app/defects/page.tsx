@@ -809,7 +809,12 @@ export default function DefectsPage() {
                 defects.map((defect) => (
                   <tr
                     key={defect.id}
-                    className="hover:bg-slate-50 transition-colors"
+                    className="hover:bg-slate-50 transition-colors cursor-pointer"
+                    onClick={() => {
+                      const params = new URLSearchParams(window.location.search);
+                      params.set("id", defect.id);
+                      window.location.href = `/defects/[id]/page?id=${defect.id}`;
+                    }}
                   >
                     <td className="px-5 py-4 font-medium text-slate-900">
                       {defect.id.slice(0, 8)}…
@@ -981,13 +986,19 @@ export default function DefectsPage() {
                     <td className="px-5 py-4">
                       <div className="flex gap-1">
                         <button
-                          onClick={() => openEdit(defect)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(defect);
+                          }}
                           className="text-xs text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
                         >
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(defect.id, defect.title)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(defect.id, defect.title)
+                          }}
                           className="text-xs text-red-600 hover:text-red-700 underline underline-offset-4"
                         >
                           Delete

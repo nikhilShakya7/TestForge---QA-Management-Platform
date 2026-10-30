@@ -58,16 +58,29 @@ export async function GET(request: NextRequest) {
 
     // Execution counts — executions belong to test runs, which belong to users
     // Filter executions by runs created by this user and project
-    const [totalExecutions, executionsByStatus] = await Promise.all([
-      prisma.testExecution.count({
-        where: { testRun: { createdById: userId, ...baseWhere } },
-      }),
-      prisma.testExecution.groupBy({
-        by: ["status"],
-        _count: { status: true },
-        where: { testRun: { createdById: userId, ...baseWhere } },
-      }),
-    ]);
+    const executionStatusGroups = await prisma.testExecution.groupBy({
+      by: ["status"],
+      _count: { status: true },
+      where: { testRun: { createdById: userId, ...baseWhere } },
+    });
+    const executionsByStatus: Record<string, number> = {};
+    for (const group of executionStatusGroups) {
+      const normalizedStatus = group.status.trim().toLowerCase();
+      const status =
+        normalizedStatus === "passed"
+          ? "Passed"
+          : normalizedStatus === "failed"
+            ? "Failed"
+            : normalizedStatus === "blocked"
+              ? "Blocked"
+              : group.status;
+      executionsByStatus[status] =
+        (executionsByStatus[status] ?? 0) + group._count.status;
+    }
+    const totalExecutions = executionStatusGroups.reduce(
+      (total, group) => total + group._count.status,
+      0
+    );
 
     // Helper to convert groupBy results to a simple record
     const toRecord = (
@@ -93,7 +106,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const passedCount = executionsByStatus.find((e) => e.status === "Passed")?._count.status ?? 0;
+    const passedCount = executionsByStatus.Passed ?? 0;
     const passRate = totalExecutions > 0 ? Math.round((passedCount / totalExecutions) * 100) : 0;
 
     // Automated test results (Playwright, Newman, etc.)
@@ -143,7 +156,7 @@ export async function GET(request: NextRequest) {
       },
       executions: {
         total: totalExecutions,
-        byStatus: toRecord(executionsByStatus),
+        byStatus: executionsByStatus,
         passRate,
       },
       automatedResults: {
