@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 
 type Defect = {
   id: string;
@@ -25,14 +26,9 @@ export default function DefectDetailPage() {
   const [defect, setDefect] = useState<Defect | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const defectId = typeof window !== "undefined"
-    ? new URLSearchParams(window.location.search).get("id")
-    : null;
+  const { id: defectId } = useParams<{ id: string }>();
 
   useEffect(() => {
-    if (!defectId) return;
-
     async function fetchDefect() {
       try {
         const res = await fetch(`/api/defects/${defectId}`, {

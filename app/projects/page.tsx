@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import ProjectCard from "@/components/cards/project-card";
 
 type Project = {
   id: string;
@@ -11,6 +12,7 @@ type Project = {
   createdById: string;
   createdAt: string;
   updatedAt: string;
+  passRate: number;
   createdBy: { id: string; name: string | null; email: string } | null;
   _count: { testCases: number; testRuns: number; defects: number };
 };
@@ -24,21 +26,6 @@ type ProjectResponse = {
     totalPages: number;
   };
 };
-
-type StatusBadgeProps = { status: string };
-function StatusBadge({ status }: StatusBadgeProps) {
-  const variants: Record<string, string> = {
-    ACTIVE: "bg-emerald-50 text-emerald-700",
-    ARCHIVED: "bg-slate-100 text-slate-500",
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${variants[status] ?? variants["ACTIVE"]}`}
-    >
-      {status}
-    </span>
-  );
-}
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -246,6 +233,11 @@ export default function ProjectsPage() {
     }
   };
 
+  const openProject = (project: Project) => {
+    localStorage.setItem("testforge_projectId", project.id);
+    window.location.href = `/test-cases?projectId=${encodeURIComponent(project.id)}`;
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <section className="min-w-0 flex-1 p-5 md:p-8">
@@ -398,98 +390,27 @@ export default function ProjectsPage() {
           </select>
         </div>
 
-        {/* Projects table */}
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
-              <tr>
-                <th className="px-5 py-3 font-medium">Key</th>
-                <th className="px-5 py-3 font-medium">Name</th>
-                <th className="px-5 py-3 font-medium">Description</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium text-right">Test Cases</th>
-                <th className="px-5 py-3 font-medium text-right">Test Runs</th>
-                <th className="px-5 py-3 font-medium text-right">Defects</th>
-                <th className="px-5 py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-slate-500">
-                    Loading projects…
-                  </td>
-                </tr>
-              ) : projects.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-slate-500">
-                    No projects found.
-                  </td>
-                </tr>
-              ) : (
-                projects.map((project) => (
-                  <tr
-                    key={project.id}
-                    className="hover:bg-slate-50 transition-colors"
-                  >
-                    <td className="px-5 py-4 font-medium text-slate-900">
-                      {project.key}
-                    </td>
-                    <td className="px-5 py-4">{project.name}</td>
-                    <td className="px-5 py-4">
-                      {project.description ? (
-                        <span className="text-sm text-slate-600">
-                          {project.description}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      <StatusBadge status={project.status} />
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <span className="font-medium">{project._count.testCases}</span>
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <span className="font-medium">{project._count.testRuns}</span>
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <span className="font-medium">{project._count.defects}</span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex gap-1">
-                        {project.status === "ARCHIVED" ? (
-                          <button
-                            onClick={() => openEdit(project)}
-                            className="text-xs text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
-                          >
-                            Restore
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => openEdit(project)}
-                              className="text-xs text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleArchive(project.id, project.name)}
-                              className="text-xs text-red-600 hover:text-red-700 underline underline-offset-4"
-                            >
-                              Archive
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+            Loading projects…
+          </div>
+        ) : projects.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+            No projects found.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {projects.map((project) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                onOpen={() => openProject(project)}
+                onEdit={() => openEdit(project)}
+                onArchive={() => void handleArchive(project.id, project.name)}
+              />
+            ))}
+          </div>
+        )}
 
         {meta && (
           <p className="mt-4 text-xs text-slate-400">

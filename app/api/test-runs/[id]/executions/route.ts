@@ -33,7 +33,14 @@ export async function GET(
         relationLoadStrategy: "join",
         where: { testRunId: id },
         include: {
-          testCase: { select: { id: true, testCaseId: true, title: true } },
+          testCase: {
+            select: {
+              id: true,
+              testCaseId: true,
+              title: true,
+              expectedResult: true,
+            },
+          },
           executedBy: { select: { id: true, name: true, email: true } },
         },
         orderBy: { executedAt: "desc" },
@@ -136,7 +143,14 @@ export async function POST(
         testRunId: id,
       },
       include: {
-        testCase: { select: { id: true, testCaseId: true, title: true } },
+        testCase: {
+          select: {
+            id: true,
+            testCaseId: true,
+            title: true,
+            expectedResult: true,
+          },
+        },
         executedBy: { select: { id: true, name: true, email: true } },
       },
     });

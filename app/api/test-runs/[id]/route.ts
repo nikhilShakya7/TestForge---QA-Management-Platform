@@ -33,7 +33,14 @@ export async function GET(
         createdBy: { select: { id: true, name: true, email: true } },
         executions: {
           include: {
-            testCase: { select: { id: true, testCaseId: true, title: true } },
+            testCase: {
+              select: {
+                id: true,
+                testCaseId: true,
+                title: true,
+                expectedResult: true,
+              },
+            },
             executedBy: { select: { id: true, name: true, email: true } },
           },
           orderBy: { executedAt: "desc" },

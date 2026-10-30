@@ -101,8 +101,55 @@ export async function GET(request: NextRequest) {
       prisma.project.count({ where }),
     ]);
 
+    const projectIds = projects.map((project) => project.id);
+    const testRuns = projectIds.length
+      ? await prisma.testRun.findMany({
+          where: {
+            createdById: session.userId,
+            projectId: { in: projectIds },
+          },
+          select: { id: true, projectId: true },
+        })
+      : [];
+    const runProjectIds = new Map(
+      testRuns.map((run) => [run.id, run.projectId])
+    );
+    const executionGroups = testRuns.length
+      ? await prisma.testExecution.groupBy({
+          by: ["testRunId", "status"],
+          _count: { _all: true },
+          where: { testRunId: { in: testRuns.map((run) => run.id) } },
+        })
+      : [];
+    const executionMetrics = new Map<
+      string,
+      { total: number; passed: number }
+    >();
+    for (const group of executionGroups) {
+      const projectId = runProjectIds.get(group.testRunId);
+      if (!projectId) continue;
+
+      const metrics = executionMetrics.get(projectId) ?? {
+        total: 0,
+        passed: 0,
+      };
+      metrics.total += group._count._all;
+      if (group.status.trim().toLowerCase() === "passed") {
+        metrics.passed += group._count._all;
+      }
+      executionMetrics.set(projectId, metrics);
+    }
+
     return NextResponse.json({
-      data: projects,
+      data: projects.map((project) => {
+        const metrics = executionMetrics.get(project.id);
+        return {
+          ...project,
+          passRate: metrics?.total
+            ? Math.round((metrics.passed / metrics.total) * 100)
+            : 0,
+        };
+      }),
       meta: {
         total,
         page: parseInt(page, 10),

@@ -47,7 +47,14 @@ export async function PATCH(
     const existingExecution = await prisma.testExecution.findUnique({
       where: { id: executionId },
       include: {
-        testCase: { select: { id: true, testCaseId: true, title: true } },
+        testCase: {
+          select: {
+            id: true,
+            testCaseId: true,
+            title: true,
+            expectedResult: true,
+          },
+        },
       },
     });
     if (!existingExecution) {
@@ -93,7 +100,14 @@ export async function PATCH(
         executedAt: new Date(),
       },
       include: {
-        testCase: { select: { id: true, testCaseId: true, title: true } },
+        testCase: {
+          select: {
+            id: true,
+            testCaseId: true,
+            title: true,
+            expectedResult: true,
+          },
+        },
         executedBy: { select: { id: true, name: true, email: true } },
       },
     });

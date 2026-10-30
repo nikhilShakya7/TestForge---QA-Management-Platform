@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { CircleDashed } from "lucide-react";
+import TestRunCard, {
+  TestRunCardSkeleton,
+} from "@/components/cards/test-run-card";
+import TestResultCard from "@/components/cards/test-result-card";
 
 type TestRun = {
   id: string;
@@ -9,11 +14,20 @@ type TestRun = {
   status: string;
   suiteId: string | null;
   projectId: string | null;
-  suite: { id: string; name: string } | null;
+  suite: {
+    id: string;
+    name: string;
+    _count?: { testCases: number };
+  } | null;
+  project?: { _count?: { testCases: number } } | null;
   createdBy: { id: string; name: string | null; email: string } | null;
   createdAt: string;
   updatedAt: string;
-  _count: { executions: number };
+  lastExecutedAt?: string | null;
+  _count: {
+    executions: number;
+    executions_by_status: { passed: number; failed: number; blocked: number };
+  };
 };
 
 type Project = {
@@ -33,7 +47,7 @@ type TestCaseForRun = {
   id: string;
   testCaseId: string;
   title: string;
-  expectedResult: string;
+  expectedResult: string | null;
   priority: string;
   status: string;
 };
@@ -59,17 +73,12 @@ type ExecutionHistoryRecord = {
   changedBy: { id: string; name: string | null; email: string } | null;
 };
 
-const STATUS_VARIANTS: Record<ExecutionStatus, string> = {
-  Passed: "bg-emerald-50 text-emerald-700",
-  Failed: "bg-red-50 text-red-700",
-  Blocked: "bg-amber-50 text-amber-700",
-};
-
 export default function TestRunsPage() {
   const [testRuns, setTestRuns] = useState<TestRun[]>([]);
   const [testSuites, setTestSuites] = useState<TestSuite[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [runDetailsLoading, setRunDetailsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -93,14 +102,11 @@ export default function TestRunsPage() {
   const [savingExecutions, setSavingExecutions] = useState(false);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-
-  // Execution history modal state
-  const [showExecutionHistory, setShowExecutionHistory] = useState(false);
   const [selectedExecutionTestCaseId, setSelectedExecutionTestCaseId] = useState<string | null>(null);
   const [executionHistory, setExecutionHistory] = useState<ExecutionHistoryRecord[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const runDetailsRequest = useRef(0);
 
-  // Fetch available projects for the dropdown
   const fetchProjects = async () => {
     try {
       const res = await fetch("/api/projects", {
@@ -176,24 +182,24 @@ export default function TestRunsPage() {
     }
   }
 
-  // Re-fetch test runs and suites when project changes
   useEffect(() => {
     fetchTestRuns();
     fetchTestSuites();
   }, [projectId]);
 
-  async function fetchRunDetails(runId: string) {
-    const run = testRuns.find((r) => r.id === runId);
-    if (!run) return;
-
+  async function fetchRunDetails(run: TestRun) {
+    const requestId = ++runDetailsRequest.current;
+    setRunDetailsLoading(true);
+    setError(null);
     try {
       let res = await fetch(
         `/api/test-cases${run.projectId ? `?projectId=${run.projectId}` : ""}${run.suiteId ? `&suiteId=${run.suiteId}` : ""}`,
         { credentials: "include", cache: "no-store" }
       );
       if (!res.ok) throw new Error("Failed to load test cases");
-      const data: any = await res.json();
-      const cases: TestCaseForRun[] = data.data.map((tc: any) => ({
+      if (requestId !== runDetailsRequest.current) return;
+      const data: { data: TestCaseForRun[] } = await res.json();
+      const cases: TestCaseForRun[] = data.data.map((tc) => ({
         id: tc.id,
         testCaseId: tc.testCaseId,
         title: tc.title,
@@ -203,16 +209,17 @@ export default function TestRunsPage() {
       }));
       setRunTestCases(cases);
 
-      res = await fetch(`/api/test-runs/${runId}/executions`, {
+      res = await fetch(`/api/test-runs/${run.id}/executions`, {
         credentials: "include",
         cache: "no-store",
       });
       if (!res.ok) throw new Error("Failed to load executions");
+      if (requestId !== runDetailsRequest.current) return;
       const existingExecutions: ExecutionRecord[] = await res.json();
 
       const initialExecutions: Record<string, ExecutionStatus> = {};
       const initialNotes: Record<string, string> = {};
-      const initialActualResults: Record<string, string | null> = {};
+      const initialActualResults: Record<string, string> = {};
       const initialRecords: Record<string, ExecutionRecord> = {};
 
       cases.forEach((tc) => {
@@ -229,9 +236,17 @@ export default function TestRunsPage() {
 
       setExecutions(initialExecutions);
       setExecutionNotes(initialNotes);
+      setExecutionActualResults(initialActualResults);
       setExecutionRecords(initialRecords);
+      setHasUnsavedChanges(false);
     } catch (err) {
-      console.error("Failed to load run details:", err);
+      if (requestId === runDetailsRequest.current) {
+        setError(err instanceof Error ? err.message : "Failed to load run details");
+      }
+    } finally {
+      if (requestId === runDetailsRequest.current) {
+        setRunDetailsLoading(false);
+      }
     }
   }
 
@@ -268,7 +283,7 @@ export default function TestRunsPage() {
       setCreating(false);
       setCreateForm({ name: "", description: "", suiteId: "" });
       setSelectedRun(newRun);
-      await fetchRunDetails(newRun.id);
+      await fetchRunDetails(newRun);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create test run");
     }
@@ -278,7 +293,11 @@ export default function TestRunsPage() {
     setSelectedRun(run);
     setRunTestCases([]);
     setExecutions({});
-    void fetchRunDetails(run.id);
+    setExecutionNotes({});
+    setExecutionActualResults({});
+    setExecutionRecords({});
+    setHasUnsavedChanges(false);
+    void fetchRunDetails(run);
   };
 
   const handleDeleteRun = async (id: string, name: string) => {
@@ -319,79 +338,15 @@ export default function TestRunsPage() {
     }
   };
 
-  const handleSetExecution = async (
+  const handleSetExecution = (
     testCaseId: string,
     status: ExecutionStatus
   ) => {
     if (!selectedRun) return;
 
     if (executions[testCaseId] === status) return;
-
     setExecutions((prev) => ({ ...prev, [testCaseId]: status }));
     setHasUnsavedChanges(true);
-
-    try {
-      if (executionRecords[testCaseId]) {
-        // Update existing execution via PATCH
-        const res = await fetch(
-          `/api/test-runs/${selectedRun.id}/executions/${executionRecords[testCaseId].id}`,
-          {
-            method: "PATCH",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              status,
-              actualResult: executionActualResults[testCaseId] || null,
-              notes: executionNotes[testCaseId] || null,
-            }),
-          }
-        );
-
-        if (!res.ok) {
-          const errorBody = await res.json();
-          throw new Error(errorBody.error || "Failed to update execution");
-        }
-
-        const updated = await res.json();
-        setExecutionRecords((prev) => ({
-          ...prev,
-          [testCaseId]: updated,
-        }));
-        return;
-      }
-
-      const res = await fetch(`/api/test-runs/${selectedRun.id}/executions`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          testCaseId,
-          status,
-          notes: executionNotes[testCaseId] || null,
-          actualResult: executionActualResults[testCaseId] || null,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorBody = await res.json();
-        if (res.status === 409) {
-          setExecutions((prev) => ({
-            ...prev,
-            [testCaseId]: executionRecords[testCaseId]?.status || "Passed",
-          }));
-        }
-        throw new Error(errorBody.error || "Failed to save execution");
-      }
-
-      const created = await res.json();
-      setExecutionRecords((prev) => ({
-        ...prev,
-        [testCaseId]: created,
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save execution result");
-      setExecutions((prev) => ({ ...prev, [testCaseId]: "Passed" }));
-    }
   };
 
   const handleSetNote = (testCaseId: string, value: string) => {
@@ -404,49 +359,71 @@ export default function TestRunsPage() {
     setHasUnsavedChanges(true);
   };
 
-  const handleSaveExecutions = async () => {
-    if (!selectedRun) return;
+  const handleSaveExecutions = async (): Promise<boolean> => {
+    if (!selectedRun) return false;
     setSavingExecutions(true);
 
     try {
-      // Save all pending test case executions via PATCH
-      const savePromises = Object.entries(executionRecords).map(
-        async ([testCaseId, execution]) => {
-          const currentStatus = executions[testCaseId];
-          const currentNotes = executionNotes[testCaseId] || null;
-          const currentActualResult =
-            executionActualResults[testCaseId] || null;
-
-          // Only save if there's an actual change from server record
+      const savedExecutions = await Promise.allSettled(
+        runTestCases.flatMap((testCase) => {
+          const status = executions[testCase.id];
+          if (!status) return [];
+          const record = executionRecords[testCase.id];
+          const actualResult = executionActualResults[testCase.id] || null;
+          const notes = executionNotes[testCase.id] || null;
           if (
-            execution.status === currentStatus &&
-            execution.notes === (currentNotes || "") &&
-            execution.actualResult === (currentActualResult || null)
+            record &&
+            record.status === status &&
+            record.actualResult === actualResult &&
+            record.notes === notes
           ) {
-            return;
+            return [];
           }
+          const endpoint = record
+            ? `/api/test-runs/${selectedRun.id}/executions/${record.id}`
+            : `/api/test-runs/${selectedRun.id}/executions`;
+          const requestBody = {
+            ...(record ? {} : { testCaseId: testCase.id }),
+            status,
+            actualResult,
+            notes,
+          };
 
-          return fetch(`/api/test-runs/${selectedRun.id}/executions/${execution.id}`, {
-            method: "PATCH",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              status: currentStatus,
-              actualResult: currentActualResult,
-              notes: currentNotes,
-            }),
-          });
-        }
+          return [
+            (async () => {
+              const executionResponse = await fetch(endpoint, {
+                method: record ? "PATCH" : "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(requestBody),
+              });
+          if (!executionResponse.ok) {
+            const body = await executionResponse.json();
+            throw new Error(body.error || "Failed to save execution result");
+          }
+              return [
+                testCase.id,
+                (await executionResponse.json()) as ExecutionRecord,
+              ] as const;
+            })(),
+          ];
+        })
       );
-
-      const results = await Promise.all(savePromises);
-
-      const failedSaves = results.filter((r) => r && !r.ok);
-      if (failedSaves.length > 0) {
-        throw new Error(`Failed to save ${failedSaves.length} execution(s)`);
+      const updatedExecutions = savedExecutions.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : []
+      );
+      if (updatedExecutions.length > 0) {
+        setExecutionRecords((prev) => ({
+          ...prev,
+          ...Object.fromEntries(updatedExecutions),
+        }));
       }
+      const failedSave = savedExecutions.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected"
+      );
+      if (failedSave) throw failedSave.reason;
 
-      // Update run status to InProgress
       const res = await fetch(`/api/test-runs/${selectedRun.id}`, {
         method: "PATCH",
         credentials: "include",
@@ -455,113 +432,76 @@ export default function TestRunsPage() {
       });
 
       if (!res.ok) {
-        throw new Error("Failed to update test run status");
+        const body = await res.json();
+        throw new Error(body.error || "Failed to update test run status");
       }
 
+      const statusCounts = runTestCases.reduce(
+        (counts, testCase) => {
+          const status = executions[testCase.id];
+          if (status === "Passed") counts.passed += 1;
+          if (status === "Failed") counts.failed += 1;
+          if (status === "Blocked") counts.blocked += 1;
+          return counts;
+        },
+        { passed: 0, failed: 0, blocked: 0 }
+      );
       setTestRuns((prev) =>
         prev.map((r) =>
-          r.id === selectedRun!.id ? { ...r, status: "InProgress" } : r
+          r.id === selectedRun.id
+            ? {
+                ...r,
+                status: "InProgress",
+                _count: {
+                  ...r._count,
+                  executions: Object.keys(executions).length,
+                  executions_by_status: statusCounts,
+                },
+              }
+            : r
         )
       );
+      setSelectedRun((run) =>
+        run?.id === selectedRun.id
+          ? {
+              ...run,
+              status: "InProgress",
+              _count: {
+                ...run._count,
+                executions: Object.keys(executions).length,
+                executions_by_status: statusCounts,
+              },
+            }
+          : run
+      );
+      setHasUnsavedChanges(false);
 
-      const executedCount = executionRecords.length;
+      const executedCount = runTestCases.filter(
+        (testCase) => executions[testCase.id]
+      ).length;
       alert(
         `Execution results saved for ${executedCount} test case(s) in run "${selectedRun.name}".\n\nRun status updated to InProgress.`
       );
-      setHasUnsavedChanges(false);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save executions");
+      return false;
     } finally {
       setSavingExecutions(false);
     }
   };
 
-  const handleCompleteRun = async () => {
-    if (!selectedRun) return;
-
-    // First save all pending executions
-    const savePromises = Object.entries(executionRecords).map(
-      ([testCaseId, execution]) => {
-        const currentStatus = executions[testCaseId];
-        const currentNotes = executionNotes[testCaseId] || null;
-        const currentActualResult =
-          executionActualResults[testCaseId] || null;
-
-        if (
-          execution.status === currentStatus &&
-          execution.notes === (currentNotes || "") &&
-          execution.actualResult === (currentActualResult || null)
-        ) {
-          return;
-        }
-
-        return fetch(`/api/test-runs/${selectedRun.id}/executions/${execution.id}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status: currentStatus,
-            actualResult: currentActualResult,
-            notes: currentNotes,
-          }),
-        });
-      }
-    );
-
-    try {
-      const results = await Promise.all(savePromises);
-      const failedSaves = results.filter((r) => r && !r.ok);
-      if (failedSaves.length > 0) {
-        throw new Error(`Failed to save ${failedSaves.length} execution(s)`);
-      }
-
-      // Complete the test run
-      const res = await fetch(`/api/test-runs/${selectedRun.id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "Completed" }),
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to complete test run");
-      }
-
-      setTestRuns((prev) =>
-        prev.map((r) =>
-          r.id === selectedRun!.id ? { ...r, status: "Completed" } : r
-        )
-      );
-
-      setSelectedRun((prev) =>
-        prev ? { ...prev, status: "Completed" } : null
-      );
-
-      setHasUnsavedChanges(false);
-      alert(
-        `Test run "${selectedRun.name}" completed successfully.\n${Object.keys(executionRecords).length} test case(s) executed.`
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to complete test run");
-    } finally {
-      setSavingExecutions(false);
-    }
-  };
-
-  const runStats = (run: TestRun) => {
-    const total = run._count?.executions ?? 0;
-    return { total, passed: 0, failed: 0, blocked: 0 };
-  };
-
-  // Execution history functions
   const openExecutionHistory = async (testCaseId: string) => {
+    const execution = executionRecords[testCaseId];
+    if (!selectedRun || !execution) return;
+
     setSelectedExecutionTestCaseId(testCaseId);
     setExecutionHistory([]);
     setLoadingHistory(true);
 
     try {
       const res = await fetch(
-        `/api/test-runs/${selectedRun!.id}/executions/${testCaseId}/history`,
+        `/api/test-runs/${selectedRun.id}/executions/${execution.id}/history`,
         {
           credentials: "include",
           headers: { Accept: "application/json" },
@@ -581,6 +521,44 @@ export default function TestRunsPage() {
   const closeExecutionHistory = () => {
     setSelectedExecutionTestCaseId(null);
     setExecutionHistory([]);
+  };
+
+  const handleCompleteRun = async () => {
+    if (!selectedRun) return;
+    if (hasUnsavedChanges && !(await handleSaveExecutions())) return;
+    setSavingExecutions(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/test-runs/${selectedRun.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Completed" }),
+      });
+      if (!res.ok) {
+        const errorBody = await res.json();
+        throw new Error(errorBody.error || "Failed to complete test run");
+      }
+
+      setTestRuns((prev) =>
+        prev.map((run) =>
+          run.id === selectedRun.id ? { ...run, status: "Completed" } : run
+        )
+      );
+      setSelectedRun((run) =>
+        run?.id === selectedRun.id ? { ...run, status: "Completed" } : run
+      );
+      setTestRuns((runs) =>
+        runs.map((run) =>
+          run.id === selectedRun.id ? { ...run, status: "Completed" } : run
+        )
+      );
+      setHasUnsavedChanges(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to complete test run");
+    } finally {
+      setSavingExecutions(false);
+    }
   };
 
   return (
@@ -616,7 +594,16 @@ export default function TestRunsPage() {
               value={projectId || ""}
               onChange={(e) => {
                 const val = e.target.value;
+                runDetailsRequest.current += 1;
                 setProjectId(val || null);
+                setSelectedRun(null);
+                setRunDetailsLoading(false);
+                setRunTestCases([]);
+                setExecutions({});
+                setExecutionNotes({});
+                setExecutionActualResults({});
+                setExecutionRecords({});
+                setHasUnsavedChanges(false);
                 localStorage.setItem("testforge_projectId", val || "");
                 const params = new URLSearchParams(window.location.search);
                 if (val) params.set("projectId", val);
@@ -731,104 +718,52 @@ export default function TestRunsPage() {
 
         {/* Test runs list */}
         {projectId && (
-          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-3 bg-slate-50">
-              <h3 className="font-semibold">Test Runs</h3>
-              <p className="mt-1 text-xs text-slate-500">
-                Execution sessions for tracking test results.
-              </p>
+          <section>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">
+                  Test Runs
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {loading
+                    ? "Loading test runs..."
+                    : `${testRuns.length} test runs displayed`}
+                </p>
+              </div>
             </div>
 
             {loading ? (
-              <div className="px-5 py-8 text-center text-slate-500">
-                Loading test runs…
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <TestRunCardSkeleton key={index} />
+                ))}
               </div>
             ) : testRuns.length === 0 ? (
-              <div className="px-5 py-8 text-center text-slate-500">
-                No test runs yet. Create one to get started.
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                  <CircleDashed size={22} />
+                </div>
+                <h3 className="mt-4 text-sm font-semibold text-slate-900">
+                  No test runs found
+                </h3>
+                <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
+                  Create a test run to start tracking execution results for this project.
+                </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm divide-y divide-slate-100">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-5 py-3 font-medium">Name</th>
-                    <th className="px-5 py-3 font-medium">Suite</th>
-                    <th className="px-5 py-3 font-medium">Status</th>
-                    <th className="px-5 py-3 font-medium">Executions</th>
-                    <th className="px-5 py-3 font-medium">Created By</th>
-                    <th className="px-5 py-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {testRuns.map((run) => {
-                    const { total } = runStats(run);
-                    const isSelected = selectedRun?.id === run.id;
-                    return (
-                      <tr
-                        key={run.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const params = new URLSearchParams(window.location.search);
-                          params.set("id", run.id);
-                          window.location.href = `/test-runs/[id]/page?id=${run.id}`;
-                        }}
-                        className={`cursor-pointer hover:bg-slate-50 transition-colors ${
-                          isSelected ? "bg-indigo-50" : ""
-                        }`}
-                      >
-                        <td className="px-5 py-4 font-medium text-slate-900">
-                          {run.name}
-                        </td>
-                        <td className="px-5 py-4">
-                          {run.suite ? (
-                            <span className="text-xs text-slate-500">
-                              {run.suite.name}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${run.status === "Completed" ? "bg-emerald-50 text-emerald-700" : run.status === "InProgress" ? "bg-blue-50 text-blue-700" : "bg-slate-50 text-slate-700"}`}>
-                            {run.status}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4">{total}</td>
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {run.createdBy?.name || run.createdBy?.email || "—"}
-                        </td>
-                        <td className="px-5 py-4">
-                          <div className="flex gap-1">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSelectRun(run);
-                              }}
-                              className="text-sm text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
-                            >
-                              View / Record Results
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleDeleteRun(run.id, run.name);
-                              }}
-                              disabled={deletingRunId === run.id}
-                              className="text-xs text-red-600 hover:text-red-700 underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {deletingRunId === run.id ? "Deleting…" : "Delete"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                </table>
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {testRuns.map((run) => (
+                  <TestRunCard
+                    key={run.id}
+                    run={run}
+                    deleting={deletingRunId === run.id}
+                    onView={() => handleSelectRun(run)}
+                    onDelete={() => void handleDeleteRun(run.id, run.name)}
+                  />
+                ))}
               </div>
             )}
-          </div>
+          </section>
         )}
 
         {/* Run detail: record executions */}
@@ -848,120 +783,140 @@ export default function TestRunsPage() {
               </span>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm divide-y divide-slate-100">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-5 py-3 font-medium">Test Case ID</th>
-                  <th className="px-5 py-3 font-medium">Title</th>
-                  <th className="px-5 py-3 font-medium">Result</th>
-                  <th className="px-5 py-3 font-medium">Expected Result</th>
-                  <th className="px-5 py-3 font-medium">Actual Result</th>
-                  <th className="px-5 py-3 font-medium">Notes</th>
-                  <th className="px-5 py-3 font-medium">History</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runTestCases.map((tc) => {
-                  return (
-                    <tr key={tc.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-5 py-4 font-medium text-slate-900">
-                        {tc.testCaseId}
-                      </td>
-                      <td className="px-5 py-4">{tc.title}</td>
-                      <td className="px-5 py-4">
-                        <div className="flex gap-2">
-                          {["Passed", "Failed", "Blocked"].map((status) => {
-                            const isActive =
-                              executions[tc.id] === status;
-                            return (
-                              <button
-                                key={status}
-                                onClick={() =>
-                                  handleSetExecution(
-                                    tc.id,
-                                    status as ExecutionStatus
-                                  )
-                                }
-                                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${
-                                  isActive
-                                    ? "bg-indigo-600 text-white"
-                                    : STATUS_VARIANTS[status as ExecutionStatus]
-                                }`}
-                              >
-                                {status}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className="text-sm text-slate-600">
-                          {tc.expectedResult || "—"}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <input
-                          type="text"
-                          placeholder="Actual result…"
-                          value={executionActualResults[tc.id] || ""}
-                          onChange={(e) =>
-                            handleSetActualResult(tc.id, e.target.value)
-                          }
-                          className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-                        />
-                      </td>
-                      <td className="px-5 py-4">
-                        <button
-                          onClick={() => openExecutionHistory(tc.id)}
-                          className="text-xs text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
-                        >
-                          View History
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={7} className="px-5 py-4">
-                    <div className="flex flex-col sm:flex-row gap-4">
-                      <button
-                        type="button"
-                        onClick={handleSaveExecutions}
-                        disabled={savingExecutions || !hasUnsavedChanges}
-                        className={`w-full sm:w-auto rounded-lg bg-indigo-600 text-white text-sm font-medium px-6 py-2.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${savingExecutions || !hasUnsavedChanges ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                      >
-                        {savingExecutions ? 'Saving…' : 'Save Execution Results'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleCompleteRun}
-                        disabled={savingExecutions || !hasUnsavedChanges}
-                        className={`w-full sm:w-auto rounded-lg bg-blue-600 text-white text-sm font-medium px-6 py-2.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${savingExecutions || !hasUnsavedChanges ? 'bg-slate-400' : 'bg-blue-600 hover:bg-blue-700'}`}
-                      >
-                        {savingExecutions ? 'Saving…' : 'Complete Test Run'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRun(null)}
-                        className="w-full sm:w-auto rounded-lg border border-slate-200 bg-white px-6 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
-                      >
-                        Back to List
-                      </button>
-                      </div>
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {runTestCases.map((testCase) => (
+                  <TestResultCard
+                    key={testCase.id}
+                    testCaseId={testCase.testCaseId}
+                    title={testCase.title}
+                    status={executions[testCase.id] || "Not Run"}
+                    expectedResult={testCase.expectedResult}
+                    actualResult={executionActualResults[testCase.id]}
+                    notes={executionNotes[testCase.id]}
+                    executedAt={executionRecords[testCase.id]?.executedAt}
+                    executedBy={
+                      executionRecords[testCase.id]?.executedBy?.name ||
+                      executionRecords[testCase.id]?.executedBy?.email
+                    }
+                    editable
+                    onStatusChange={(status) =>
+                      handleSetExecution(testCase.id, status)
+                    }
+                    onActualResultChange={(value) =>
+                      handleSetActualResult(testCase.id, value)
+                    }
+                    onNotesChange={(value) => handleSetNote(testCase.id, value)}
+                    onUpdate={() => void handleSaveExecutions()}
+                    onViewHistory={
+                      executionRecords[testCase.id]
+                        ? () => void openExecutionHistory(testCase.id)
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+
+              <div className="mt-6 flex gap-2">
+                <button
+                  onClick={handleSaveExecutions}
+                  disabled={savingExecutions}
+                  className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                    savingExecutions
+                      ? "bg-slate-400 text-slate-200"
+                      : "bg-indigo-600 text-white hover:bg-indigo-700"
+                }`}
+                >
+                  {savingExecutions ? "Saving…" : "Save Execution Results"}
+                </button>
+                <button
+                  onClick={handleCompleteRun}
+                  disabled={savingExecutions || selectedRun.status === "Completed"}
+                  className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                    savingExecutions || selectedRun.status === "Completed"
+                      ? "bg-slate-400 text-slate-200"
+                      : "bg-blue-600 text-white hover:bg-blue-700"
+                }`}
+                >
+                  {savingExecutions ? "Saving…" : "Complete Test Run"}
+                </button>
+                <button
+                  onClick={() => setSelectedRun(null)}
+                  className="px-4 py-2.5 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200"
+                >
+                  Back to List
+                </button>
+              </div>
             </div>
+        )}
+
+        {selectedExecutionTestCaseId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="execution-history-title"
+              className="w-full max-w-2xl rounded-xl bg-white shadow-xl"
+            >
+              <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                <h3 id="execution-history-title" className="font-semibold">
+                  Execution History
+                </h3>
+                <button
+                  type="button"
+                  onClick={closeExecutionHistory}
+                  className="text-sm text-slate-500 hover:text-slate-800"
+                >
+                  Close
+                </button>
+              </header>
+              {loadingHistory ? (
+                <p className="px-5 py-8 text-center text-sm text-slate-500">
+                  Loading history…
+                </p>
+              ) : executionHistory.length === 0 ? (
+                <p className="px-5 py-8 text-center text-sm text-slate-500">
+                  No previous changes recorded.
+                </p>
+              ) : (
+                <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
+                  {executionHistory.map((item) => (
+                    <li key={item.id} className="space-y-1 px-5 py-4 text-sm">
+                      <p className="font-medium">{item.status}</p>
+                      <p className="text-slate-600">
+                        {item.changedBy?.name || item.changedBy?.email || "Unknown user"}
+                        {" · "}
+                        {new Date(item.changedAt).toLocaleString()}
+                      </p>
+                      {item.actualResult && (
+                        <p className="text-slate-600">
+                          Actual result: {item.actualResult}
+                        </p>
+                      )}
+                      {item.notes && (
+                        <p className="text-slate-600">Notes: {item.notes}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
         )}
 
-        {selectedRun && runTestCases.length === 0 && (
+        {selectedRun && runDetailsLoading && runTestCases.length === 0 && (
+          <div className="mt-8 rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
+            Loading run results…
+          </div>
+        )}
+
+        {selectedRun &&
+          !runDetailsLoading &&
+          !error &&
+          runTestCases.length === 0 && (
           <div className="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-lg font-semibold mb-2">{selectedRun.name}</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              {selectedRun.name}
+            </h3>
             <p className="text-sm text-slate-500">
               No test cases in this run. Add test cases to a suite first, or
               create a test run with a suite that has test cases.

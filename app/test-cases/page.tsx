@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+import TestCaseCard from "@/components/cards/test-case-card";
 
 type TestCase = {
   id: string;
@@ -34,39 +36,9 @@ type ApiResponse = {
     pageSize: number;
     totalPages: number;
   };
-};type PriorityBadgeProps = { priority: string };
-function PriorityBadge({ priority }: PriorityBadgeProps) {
-  const variants: Record<string, string> = {
-    Critical: "bg-red-50 text-red-700",
-    High: "bg-orange-50 text-orange-700",
-    Medium: "bg-slate-50 text-slate-700",
-    Low: "bg-emerald-50 text-emerald-700",
-  };
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${variants[priority] ?? variants["Medium"]}`}>
-      {priority}
-    </span>
-  );
-}
-
-type StatusBadgeProps = { status: string };
-function StatusBadge({ status }: StatusBadgeProps) {
-  const variants: Record<string, string> = {
-    Passed: "bg-emerald-50 text-emerald-700",
-    Failed: "bg-red-50 text-red-700",
-    Blocked: "bg-amber-50 text-amber-700",
-    Active: "bg-blue-50 text-blue-700",
-    Draft: "bg-slate-50 text-slate-700",
-    Archived: "bg-slate-100 text-slate-500",
-  };
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${variants[status] ?? variants["Draft"]}`}>
-      {status}
-    </span>
-  );
-}
-
+};
 export default function TestCasesPage() {
+  const router = useRouter();
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +57,7 @@ export default function TestCasesPage() {
   const [search, setSearch] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterSuiteId, setFilterSuiteId] = useState("");
 
   // Create form state
   const [creating, setCreating] = useState(false);
@@ -180,6 +153,7 @@ export default function TestCasesPage() {
       const stored = localStorage.getItem("testforge_projectId");
       const params = new URLSearchParams(window.location.search);
       const pid = params.get("projectId") || stored || null;
+      setFilterSuiteId(params.get("suiteId") || "");
       if (pid) {
         setProjectId(pid);
         localStorage.setItem("testforge_projectId", pid);
@@ -202,6 +176,7 @@ export default function TestCasesPage() {
       if (search) params.set("search", search);
       if (filterPriority) params.set("priority", filterPriority);
       if (filterStatus) params.set("status", filterStatus);
+      if (filterSuiteId) params.set("suiteId", filterSuiteId);
       params.set("projectId", projectId);
       params.set("page", "1");
       params.set("pageSize", "50");
@@ -231,7 +206,7 @@ export default function TestCasesPage() {
         setLoading(false);
       }
     }
-  }, [search, filterPriority, filterStatus, projectId]);
+  }, [search, filterPriority, filterStatus, filterSuiteId, projectId]);
 
   useEffect(() => {
     fetchTestCases();
@@ -500,7 +475,7 @@ export default function TestCasesPage() {
 
         {/* Search & Filters */}
         {projectId && (
-          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="relative">
               <input
                 type="text"
@@ -531,6 +506,18 @@ export default function TestCasesPage() {
               {statuses.map((s) => (
                 <option key={s} value={s}>
                   {s}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filterSuiteId}
+              onChange={(e) => setFilterSuiteId(e.target.value)}
+              className="block w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+            >
+              <option value="">All test suites</option>
+              {testSuites.map((suite) => (
+                <option key={suite.id} value={suite.id}>
+                  {suite.name}
                 </option>
               ))}
             </select>
@@ -918,89 +905,33 @@ export default function TestCasesPage() {
           </div>
         )}
 
-        {/* Test cases table */}
+        {/* Test case cards */}
         {projectId && (
-          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-5 py-3 font-medium">ID</th>
-                  <th className="px-5 py-3 font-medium">Title</th>
-                  <th className="px-5 py-3 font-medium">Suite</th>
-                  <th className="px-5 py-3 font-medium">Priority</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-4 text-slate-500">
-                      Loading test cases…
-                    </td>
-                  </tr>
-                ) : testCases.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
-                      No test cases found.
-                    </td>
-                  </tr>
-                ) : (
-                  testCases.map((tc) => (
-                    <tr
-                      key={tc.id}
-                      className="hover:bg-slate-50 transition-colors cursor-pointer"
-                      onClick={() => {
-                        window.location.href = `/test-cases/${tc.id}`;
-                      }}
-                      >
-                      <td className="px-5 py-4 font-medium text-slate-900">
-                        {tc.testCaseId}
-                      </td>
-                      <td className="px-5 py-4">{tc.title}</td>
-                      <td className="px-5 py-4">
-                        {tc.suite ? (
-                          <span className="text-xs text-slate-500">
-                            {tc.suite.name}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-4">
-                        <PriorityBadge priority={tc.priority} />
-                      </td>
-                      <td className="px-5 py-4">
-                        <StatusBadge status={tc.status} />
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="flex gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEdit(tc);
-                            }}
-                            className="text-xs text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete(tc.id, tc.testCaseId)
-                            }}
-                            className="text-xs text-red-600 hover:text-red-700 underline underline-offset-4"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          loading ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+              Loading test cases…
+            </div>
+          ) : testCases.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+              No test cases match the current filters.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {testCases.map((testCase) => (
+                <TestCaseCard
+                  key={testCase.id}
+                  testCase={testCase}
+                  onOpen={() => {
+                    router.push(`/test-cases/${testCase.id}`);
+                  }}
+                  onEdit={() => openEdit(testCase)}
+                  onDelete={() =>
+                    void handleDelete(testCase.id, testCase.testCaseId)
+                  }
+                />
+              ))}
+            </div>
+          )
         )}
 
         {meta && projectId && (

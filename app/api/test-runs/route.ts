@@ -31,12 +31,24 @@ export async function GET(request: NextRequest) {
         ...(status ? { status } : {}),
       },
       include: {
-        suite: { select: { id: true, name: true } },
+        suite: {
+          select: {
+            id: true,
+            name: true,
+            _count: { select: { testCases: true } },
+          },
+        },
+        project: {
+          select: {
+            _count: { select: { testCases: true } },
+          },
+        },
         createdBy: { select: { id: true, name: true, email: true } },
         _count: { select: { executions: true } },
         executions: {
           select: {
             status: true,
+            executedAt: true,
           },
         },
       },
@@ -45,14 +57,30 @@ export async function GET(request: NextRequest) {
 
     // Add execution status breakdown to each test run
     const testRunsWithStats = testRuns.map((run) => {
-      const executions = run.executions as Array<{ status: string }>;
-      const passed = executions.filter((e) => e.status === "Passed").length;
-      const failed = executions.filter((e) => e.status === "Failed").length;
-      const blocked = executions.filter((e) => e.status === "Blocked").length;
+      const executions = run.executions as Array<{
+        status: string;
+        executedAt: Date;
+      }>;
+      const passed = executions.filter(
+        (execution) => execution.status.trim().toLowerCase() === "passed"
+      ).length;
+      const failed = executions.filter(
+        (execution) => execution.status.trim().toLowerCase() === "failed"
+      ).length;
+      const blocked = executions.filter(
+        (execution) => execution.status.trim().toLowerCase() === "blocked"
+      ).length;
 
       return {
         ...run,
         executions: undefined, // Remove raw executions from response
+        lastExecutedAt: executions.reduce<Date | null>(
+          (latest, execution) =>
+            !latest || execution.executedAt > latest
+              ? execution.executedAt
+              : latest,
+          null
+        ),
         _count: {
           ...run._count,
           executions_by_status: { passed, failed, blocked },

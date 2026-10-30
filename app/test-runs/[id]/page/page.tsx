@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import TestResultCard from "@/components/cards/test-result-card";
 
 type TestRun = {
   id: string;
@@ -18,9 +19,15 @@ type TestRun = {
     testCaseId: string;
     status: string;
     executedAt: string;
+    actualResult: string | null;
     notes: string | null;
     executedBy: { id: string; name: string | null; email: string } | null;
-    testCase: { id: string; testCaseId: string; title: string } | null;
+    testCase: {
+      id: string;
+      testCaseId: string;
+      title: string;
+      expectedResult: string | null;
+    } | null;
   }>;
 };
 
@@ -183,52 +190,27 @@ export default function TestRunDetailPage() {
               No execution results recorded for this test run yet.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-5 py-3 font-medium">Test Case</th>
-                    <th className="px-5 py-3 font-medium">Result</th>
-                    <th className="px-5 py-3 font-medium">Executed At</th>
-                    <th className="px-5 py-3 font-medium">Executed By</th>
-                    <th className="px-5 py-3 font-medium">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {testRun.executions.map((execution) => (
-                    <tr key={execution.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-5 py-4">
-                        <p className="font-medium text-slate-900">
-                          {execution.testCase?.testCaseId || execution.testCaseId}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {execution.testCase?.title || ""}
-                        </p>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${execution.status === "Passed" ? "bg-emerald-50 text-emerald-700" : execution.status === "Failed" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
-                          {execution.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 text-sm text-slate-600">
-                        {execution.executedAt ? (
-                          <span>{new Date(execution.executedAt).toLocaleString()}</span>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-4 text-sm text-slate-600">
-                        {execution.executedBy?.name || execution.executedBy?.email || "—"}
-                      </td>
-                      <td className="px-5 py-4 text-sm text-slate-600">
-                        {execution.notes || (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="p-5">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {testRun.executions.map((execution) => (
+                  <TestResultCard
+                    key={execution.id}
+                    testCaseId={
+                      execution.testCase?.testCaseId || execution.testCaseId
+                    }
+                    title={execution.testCase?.title || "Test case"}
+                    status={execution.status}
+                    expectedResult={execution.testCase?.expectedResult}
+                    actualResult={execution.actualResult}
+                    notes={execution.notes}
+                    executedAt={execution.executedAt}
+                    executedBy={
+                      execution.executedBy?.name ||
+                      execution.executedBy?.email
+                    }
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>

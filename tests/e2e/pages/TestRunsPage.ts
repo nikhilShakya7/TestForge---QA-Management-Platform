@@ -10,7 +10,7 @@ import { expect, Locator, Page } from "@playwright/test";
 export class TestRunsPage {
   readonly page: Page;
   readonly newTestRunButton: Locator;
-  readonly testRunRows: Locator;
+  readonly testRunCards: Locator;
   readonly createButton: Locator;
   readonly cancelButton: Locator;
 
@@ -24,7 +24,7 @@ export class TestRunsPage {
     this.newTestRunButton = page.getByRole("button", {
       name: /new test run/i,
     });
-    this.testRunRows = page.getByRole("row");
+    this.testRunCards = page.getByRole("article");
     this.createButton = page.getByRole("button", { name: /create test run/i });
     this.cancelButton = page.getByRole("button", { name: /cancel/i });
 
@@ -63,10 +63,9 @@ export class TestRunsPage {
   }
 
   async expectTestRunInList(runName: string) {
-    await expect.poll(
-      () => this.page.getByRole("row").filter({ hasText: runName }),
-      (rows) => rows.count() > 0,
-      { message: `Test run "${runName}" should appear in the list`, timeout: 10000 }
-    );
+    await expect(
+      this.page.locator("article").filter({ hasText: runName }).first(),
+      `Test run "${runName}" should appear in the list`,
+    ).toBeVisible({ timeout: 10000 });
   }
 }

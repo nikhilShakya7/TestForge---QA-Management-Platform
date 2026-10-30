@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import TestResultCard from "@/components/cards/test-result-card";
 
 type TestCase = {
   id: string;
@@ -22,6 +23,7 @@ type TestCase = {
     id: string;
     status: string;
     executedAt: string;
+    actualResult: string | null;
     notes: string | null;
     executedBy: { id: string; name: string | null; email: string } | null;
   }>;
@@ -215,41 +217,23 @@ export default function TestCaseDetailPage({ params }: { params: Promise<{ id: s
                 No execution results recorded for this test case yet.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="px-5 py-3 font-medium">Result</th>
-                      <th className="px-5 py-3 font-medium">Executed At</th>
-                      <th className="px-5 py-3 font-medium">Executed By</th>
-                      <th className="px-5 py-3 font-medium">Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {testCase.executions.map((execution) => (
-                      <tr key={execution.id} className="border-t border-slate-100">
-                        <td className="px-5 py-4">
-                          <StatusBadge status={execution.status} />
-                        </td>
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {execution.executedAt ? (
-                            <span>{new Date(execution.executedAt).toLocaleString()}</span>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {execution.executedBy?.name || execution.executedBy?.email || "—"}
-                        </td>
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {execution.notes || (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-1 gap-4 p-5 lg:grid-cols-2">
+                {testCase.executions.map((execution) => (
+                  <TestResultCard
+                    key={execution.id}
+                    testCaseId={testCase.testCaseId}
+                    title={testCase.title}
+                    status={execution.status}
+                    expectedResult={testCase.expectedResult}
+                    actualResult={execution.actualResult}
+                    notes={execution.notes}
+                    executedAt={execution.executedAt}
+                    executedBy={
+                      execution.executedBy?.name ||
+                      execution.executedBy?.email
+                    }
+                  />
+                ))}
               </div>
             )}
         </div>

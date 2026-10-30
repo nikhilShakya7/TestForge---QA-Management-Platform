@@ -11,7 +11,7 @@ export class TestCasesPage {
   readonly page: Page;
   readonly newTestCaseButton: Locator;
   readonly searchInput: Locator;
-  readonly testCaseRows: Locator;
+  readonly testCaseCards: Locator;
   readonly createButton: Locator;
   readonly cancelButton: Locator;
 
@@ -31,7 +31,7 @@ export class TestCasesPage {
       name: /new test case/i,
     });
     this.searchInput = page.getByPlaceholder(/search by id, title or description/i);
-    this.testCaseRows = page.getByRole("row");
+    this.testCaseCards = page.getByRole("article");
     this.createButton = page.getByRole("button", { name: /create test case/i });
     this.cancelButton = page.getByRole("button", { name: /cancel/i });
 
@@ -89,25 +89,27 @@ export class TestCasesPage {
   }
 
   async deleteTestCase(testCaseId: string) {
+    const dialogPromise = this.page
+      .waitForEvent("dialog")
+      .then((dialog) => dialog.accept());
     await this.page
-      .locator('tr', { has: this.page.getByText(testCaseId) })
+      .locator("article")
+      .filter({ hasText: testCaseId })
       .getByRole("button", { name: /delete/i })
       .click();
-    // Confirm dialog
-    await this.page.once("dialog", (dialog) => dialog.accept());
+    await dialogPromise;
   }
 
   async expectTestCaseInList(testCaseId: string) {
-    await expect.poll(
-      () => this.page.getByRole("row").filter({ hasText: testCaseId }),
-      (rows) => rows.count() > 0,
-      { message: `Test case "${testCaseId}" should appear in the list`, timeout: 10000 }
-    );
+    await expect(
+      this.page.locator("article").filter({ hasText: testCaseId }).first(),
+      `Test case "${testCaseId}" should appear in the list`,
+    ).toBeVisible({ timeout: 10000 });
   }
 
   async expectTestCaseNotInList(testCaseId: string) {
     await expect(
-      this.page.getByRole("row").filter({ hasText: testCaseId })
+      this.page.locator("article").filter({ hasText: testCaseId })
     ).not.toBeVisible();
   }
 }

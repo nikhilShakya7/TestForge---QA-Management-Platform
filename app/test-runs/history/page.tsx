@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback, ReactNode } from "react";
+import { useEffect, useState, useCallback } from "react";
+import TestRunCard from "@/components/cards/test-run-card";
+import TestResultCard from "@/components/cards/test-result-card";
 
 type TestRun = {
   id: string;
@@ -14,12 +16,17 @@ type TestRun = {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  lastExecutedAt?: string | null;
   createdBy: { id: string; name: string | null; email: string } | null;
-  suite: { id: string; name: string } | null;
+  suite: {
+    id: string;
+    name: string;
+    _count?: { testCases: number };
+  } | null;
+  project?: { _count?: { testCases: number } } | null;
   _count: {
     executions: number;
     executions_by_status: {
-      [x: string]: ReactNode;
       passed: number;
       failed: number;
       blocked: number;
@@ -39,30 +46,17 @@ type ExecutionRecord = {
   id: string;
   testCaseId: string;
   status: ExecutionStatus;
+  actualResult: string | null;
   notes: string | null;
   executedAt: string;
   executedBy: { id: string; name: string | null; email: string } | null;
-  testCase: { id: string; testCaseId: string; title: string } | null;
+  testCase: {
+    id: string;
+    testCaseId: string;
+    title: string;
+    expectedResult: string | null;
+  } | null;
 };
-
-const STATUS_COLORS: Record<string, string> = {
-  Passed: "bg-emerald-50 text-emerald-700",
-  Failed: "bg-red-50 text-red-700",
-  Blocked: "bg-amber-50 text-amber-700",
-  Planned: "bg-slate-50 text-slate-700",
-  InProgress: "bg-blue-50 text-blue-700",
-  Completed: "bg-emerald-100 text-emerald-800",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[status] || STATUS_COLORS["Planned"]}`}
-    >
-      {status}
-    </span>
-  );
-}
 
 export default function TestRunsHistoryPage() {
   const [testRuns, setTestRuns] = useState<TestRun[]>([]);
@@ -258,100 +252,14 @@ export default function TestRunsHistoryPage() {
                 No test runs found for this project.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="px-5 py-3 font-medium">Test Run</th>
-                      <th className="px-5 py-3 font-medium">Suite</th>
-                      <th className="px-5 py-3 font-medium">Status</th>
-                      <th className="px-5 py-3 font-medium text-right">
-                        Total
-                      </th>
-                      <th className="px-5 py-3 font-medium text-right">
-                        Passed
-                      </th>
-                      <th className="px-5 py-3 font-medium text-right">
-                        Failed
-                      </th>
-                      <th className="px-5 py-3 font-medium text-right">
-                        Blocked
-                      </th>
-                      <th className="px-5 py-3 font-medium">Started</th>
-                      <th className="px-5 py-3 font-medium">Completed</th>
-                      <th className="px-5 py-3 font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {testRuns.map((run) => {
-                      const stats = run._count.executions_by_status;
-                      return (
-                        <tr
-                          key={run.id}
-                          onClick={() => handleSelectRun(run)}
-                          className="cursor-pointer hover:bg-slate-50 transition-colors"
-                        >
-                          <td className="px-5 py-4 font-medium text-slate-900">
-                            {run.name}
-                          </td>
-                          <td className="px-5 py-4">
-                            {run.suite ? (
-                              <span className="text-xs text-slate-500">
-                                {run.suite.name}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-slate-400">—</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-4">
-                            <StatusBadge status={run.status} />
-                          </td>
-                          <td className="px-5 py-4 text-right font-medium">
-                            {stats.executions}
-                          </td>
-                          <td className="px-5 py-4 text-right text-emerald-600 font-medium">
-                            {stats.passed}
-                          </td>
-                          <td className="px-5 py-4 text-right text-red-600 font-medium">
-                            {stats.failed}
-                          </td>
-                          <td className="px-5 py-4 text-right text-amber-600 font-medium">
-                            {stats.blocked}
-                          </td>
-                          <td className="px-5 py-4 text-sm text-slate-600">
-                            {run.startedAt ? (
-                              <span>
-                                {new Date(run.startedAt).toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-4 text-sm text-slate-600">
-                            {run.completedAt ? (
-                              <span>
-                                {new Date(run.completedAt).toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-4">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSelectRun(run);
-                              }}
-                              className="text-xs text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
-                            >
-                              View Details
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
+                {testRuns.map((run) => (
+                  <TestRunCard
+                    key={run.id}
+                    run={run}
+                    onView={() => handleSelectRun(run)}
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -376,73 +284,37 @@ export default function TestRunsHistoryPage() {
               </button>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-5 py-3 font-medium">Test Case</th>
-                    <th className="px-5 py-3 font-medium">Result</th>
-                    <th className="px-5 py-3 font-medium">Executed At</th>
-                    <th className="px-5 py-3 font-medium">Executed By</th>
-                    <th className="px-5 py-3 font-medium">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {executionsLoading ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="px-5 py-8 text-center text-slate-500"
-                      >
-                        Loading execution results…
-                      </td>
-                    </tr>
-                  ) : executions.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="px-5 py-8 text-center text-slate-500"
-                      >
-                        No execution results found for this run.
-                      </td>
-                    </tr>
-                  ) : (
-                    executions.map((execution) => (
-                      <tr
-                        key={execution.id}
-                        className="hover:bg-slate-50 transition-colors"
-                      >
-                        <td className="px-5 py-4 font-medium text-slate-900">
-                          {execution.testCase?.testCaseId ||
-                            execution.testCaseId}
-                        </td>
-                        <td className="px-5 py-4">
-                          <StatusBadge status={execution.status} />
-                        </td>
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {execution.executedAt ? (
-                            <span>
-                              {new Date(execution.executedAt).toLocaleString()}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {execution.executedBy?.name ||
-                            execution.executedBy?.email ||
-                            "—"}
-                        </td>
-                        <td className="px-5 py-4 text-sm text-slate-600">
-                          {execution.notes || (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+            <div className="p-5">
+              {executionsLoading ? (
+                <p className="py-8 text-center text-sm text-slate-500">
+                  Loading execution results…
+                </p>
+              ) : executions.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-500">
+                  No execution results found for this run.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  {executions.map((execution) => (
+                    <TestResultCard
+                      key={execution.id}
+                      testCaseId={
+                        execution.testCase?.testCaseId || execution.testCaseId
+                      }
+                      title={execution.testCase?.title || "Test case"}
+                      status={execution.status}
+                      expectedResult={execution.testCase?.expectedResult}
+                      actualResult={execution.actualResult}
+                      notes={execution.notes}
+                      executedAt={execution.executedAt}
+                      executedBy={
+                        execution.executedBy?.name ||
+                        execution.executedBy?.email
+                      }
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

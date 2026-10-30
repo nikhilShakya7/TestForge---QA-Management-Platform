@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import TestSuiteCard from "@/components/cards/test-suite-card";
 
 type TestSuite = {
   id: string;
@@ -23,6 +25,7 @@ type Project = {
 type TestSuiteResponse = TestSuite[];
 
 export default function TestSuitesPage() {
+  const router = useRouter();
   const [testSuites, setTestSuites] = useState<TestSuite[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -230,6 +233,14 @@ export default function TestSuitesPage() {
     }
   };
 
+  const openSuite = (suite: TestSuite) => {
+    if (!projectId) return;
+    localStorage.setItem("testforge_projectId", projectId);
+    router.push(
+      `/test-cases?projectId=${encodeURIComponent(projectId)}&suiteId=${encodeURIComponent(suite.id)}`
+    );
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 md:flex">
       <section className="min-w-0 flex-1 p-5 md:p-8">
@@ -434,85 +445,29 @@ export default function TestSuitesPage() {
           </div>
         )}
 
-        {/* Test suites table */}
+        {/* Test suite cards */}
         {projectId && (
-          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-5 py-3 font-medium">Name</th>
-                  <th className="px-5 py-3 font-medium">Description</th>
-                  <th className="px-5 py-3 font-medium text-right">Test Cases</th>
-                  <th className="px-5 py-3 font-medium">Created By</th>
-                  <th className="px-5 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading ? (
-                  <tr>
-                    <td colSpan={5} className="px-5 py-8 text-center text-slate-500">
-                      Loading test suites…
-                    </td>
-                  </tr>
-                ) : testSuites.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      className="px-5 py-8 text-center text-slate-500"
-                    >
-                      No test suites found.
-                    </td>
-                  </tr>
-                ) : (
-                  testSuites.map((suite) => (
-                    <tr
-                      key={suite.id}
-                      className="hover:bg-slate-50 transition-colors"
-                    >
-                      <td className="px-5 py-4 font-medium text-slate-900">
-                        {suite.name}
-                      </td>
-                      <td className="px-5 py-4">
-                        {suite.description ? (
-                          <span className="text-sm text-slate-600">
-                            {suite.description}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <span className="font-medium">
-                          {suite._count?.testCases ?? 0}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 text-sm text-slate-600">
-                        {suite.createdBy?.name ||
-                          suite.createdBy?.email ||
-                          "—"}
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => openEdit(suite)}
-                            className="text-xs text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(suite.id, suite.name)}
-                            className="text-xs text-red-600 hover:text-red-700 underline underline-offset-4"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          loading ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+              Loading test suites…
+            </div>
+          ) : testSuites.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+              No test suites found for this project.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {testSuites.map((suite) => (
+                <TestSuiteCard
+                  key={suite.id}
+                  suite={suite}
+                  onOpen={() => openSuite(suite)}
+                  onEdit={() => openEdit(suite)}
+                  onDelete={() => void handleDelete(suite.id, suite.name)}
+                />
+              ))}
+            </div>
+          )
         )}
 
         <p className="mt-8 text-center text-xs text-slate-400">
