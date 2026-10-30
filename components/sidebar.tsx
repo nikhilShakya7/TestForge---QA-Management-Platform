@@ -6,6 +6,8 @@ import Link from "next/link";
 
 const navigation = [
   { name: "Dashboard", href: "/" },
+  { name: "Projects", href: "/projects" },
+  { name: "Test Suites", href: "/test-suites" },
   { name: "Test Cases", href: "/test-cases" },
   { name: "Test Runs", href: "/test-runs" },
   { name: "Defects", href: "/defects" },
@@ -15,7 +17,10 @@ const navigation = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [user, setUser] = useState<{ email: string | null; name: string | null } | null>(null);
+  const [user, setUser] = useState<{
+    email: string | null;
+    name: string | null;
+  } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -99,9 +104,7 @@ export default function Sidebar() {
         </div>
       ) : (
         <div className="mt-8 pt-4 border-t border-slate-200">
-          <p className="text-sm text-slate-500 mb-4">
-            You are not signed in.
-          </p>
+          <p className="text-sm text-slate-500 mb-4">You are not signed in.</p>
           <Link
             href="/auth/login"
             className="w-full block rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-center text-white hover:bg-indigo-700 transition-colors"
@@ -112,7 +115,7 @@ export default function Sidebar() {
       )}
 
       <div className="mt-8 rounded-xl bg-slate-50 p-4">
-        <p className="text-sm font-semibold">Project status</p>
+        <p className="text-sm font-semibold text-black">Project status</p>
         <p className="mt-1 text-xs text-slate-500">
           Your testing workspace is ready.
         </p>

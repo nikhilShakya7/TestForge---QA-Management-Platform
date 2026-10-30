@@ -1,11 +1,35 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  key         String   @unique // Short identifier like "ECM", "SMS", "CSC"
+  description String?
+  status      String   @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  createdBy   User          @relation(fields: [createdById], references: [id])
+  testSuites  TestSuite[]
+  testCases   TestCase[]
+  testRuns    TestRun[]
+  defects     Defect[]
+  automatedResults AutomatedTestResult[]
+
+  @@index([createdById])
+  @@index([key])
+  @@index([status])
 }
 
 model User {
@@ -24,6 +48,7 @@ model User {
   testExecutions   TestExecution[]
   testRuns         TestRun[]
   testSuites       TestSuite[]
+  projects         Project[]
 
   @@index([email])
   @@index([role])
@@ -34,13 +59,16 @@ model TestSuite {
   name        String
   description String?
   createdById String
+  projectId   String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   testCases   TestCase[]
   testRuns    TestRun[]
   createdBy   User       @relation(fields: [createdById], references: [id])
+  project     Project?   @relation(fields: [projectId], references: [id])
 
   @@index([createdById])
+  @@index([projectId])
 }
 
 model TestCase {
@@ -54,12 +82,14 @@ model TestCase {
   priority       String          @default("Medium")
   status         String          @default("Draft")
   suiteId        String?
+  projectId      String?
   createdById    String
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   defects        Defect[]
   createdBy      User            @relation(fields: [createdById], references: [id])
   suite          TestSuite?      @relation(fields: [suiteId], references: [id])
+  project        Project?        @relation(fields: [projectId], references: [id])
   executions     TestExecution[]
 
   @@index([testCaseId])
@@ -67,6 +97,7 @@ model TestCase {
   @@index([priority])
   @@index([status])
   @@index([createdById])
+  @@index([projectId])
 }
 
 model TestRun {
@@ -75,6 +106,7 @@ model TestRun {
   description String?
   status      String          @default("Planned")
   suiteId     String?
+  projectId   String?
   createdById String
   startedAt   DateTime?
   completedAt DateTime?
@@ -83,10 +115,12 @@ model TestRun {
   executions  TestExecution[]
   createdBy   User            @relation(fields: [createdById], references: [id])
   suite       TestSuite?      @relation(fields: [suiteId], references: [id])
+  project     Project?        @relation(fields: [projectId], references: [id])
 
   @@index([suiteId])
   @@index([createdById])
   @@index([status])
+  @@index([projectId])
 }
 
 model TestExecution {
@@ -119,6 +153,7 @@ model Defect {
   priority       String    @default("Medium")
   status         String    @default("Open")
   testCaseId     String?
+  projectId      String?
   reportedById   String
   assigneeId     String?
   createdAt      DateTime  @default(now())
@@ -126,8 +161,10 @@ model Defect {
   assignee       User?     @relation("DefectAssignee", fields: [assigneeId], references: [id])
   reportedBy     User      @relation(fields: [reportedById], references: [id])
   testCase       TestCase? @relation(fields: [testCaseId], references: [id])
+  project        Project?  @relation(fields: [projectId], references: [id])
 
   @@index([testCaseId])
+  @@index([projectId])
   @@index([status])
   @@index([severity])
   @@index([priority])
@@ -145,13 +182,16 @@ model AutomatedTestResult {
   blocked       Int
   ciUrl         String?
   ciArtifactUrl String?
+  projectId     String?
   createdById   String?
   createdAt     DateTime                  @default(now())
   results       AutomatedTestCaseResult[]
   createdBy     User?                     @relation(fields: [createdById], references: [id])
+  project       Project?                  @relation(fields: [projectId], references: [id])
 
   @@index([source])
   @@index([createdAt])
+  @@index([projectId])
 }
 
 model AutomatedTestCaseResult {

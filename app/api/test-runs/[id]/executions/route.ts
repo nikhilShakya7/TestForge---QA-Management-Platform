@@ -22,23 +22,24 @@ export async function GET(
 
     const { id } = await params;
 
-    // Verify the test run exists
-    const testRun = await prisma.testRun.findUnique({ where: { id } });
+    const [testRun, executions] = await Promise.all([
+      prisma.testRun.findUnique({ where: { id, createdById: session.userId } }),
+      prisma.testExecution.findMany({
+        relationLoadStrategy: "join",
+        where: { testRunId: id },
+        include: {
+          testCase: { select: { id: true, testCaseId: true, title: true } },
+          executedBy: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { executedAt: "desc" },
+      }),
+    ]);
     if (!testRun) {
       return NextResponse.json(
         { error: `Test run "${id}" not found` },
         { status: 404 }
       );
     }
-
-    const executions = await prisma.testExecution.findMany({
-      where: { testRunId: id },
-      include: {
-        testCase: { select: { id: true, testCaseId: true, title: true } },
-        executedBy: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { executedAt: "desc" },
-    });
 
     return NextResponse.json(executions);
   } catch (error) {
@@ -62,15 +63,6 @@ export async function POST(
 
     const { id } = await params;
 
-    // Verify the test run exists
-    const testRun = await prisma.testRun.findUnique({ where: { id } });
-    if (!testRun) {
-      return NextResponse.json(
-        { error: `Test run "${id}" not found` },
-        { status: 404 }
-      );
-    }
-
     const body = await request.json();
     const parsed = executionSchema.safeParse(body);
     if (!parsed.success) {
@@ -80,10 +72,28 @@ export async function POST(
       );
     }
 
-    // Verify the test case exists
-    const testCase = await prisma.testCase.findUnique({
-      where: { id: parsed.data.testCaseId },
-    });
+    const [testRun, testCase, user, existing] = await Promise.all([
+      prisma.testRun.findUnique({ where: { id, createdById: session.userId } }),
+      prisma.testCase.findUnique({
+        where: { id: parsed.data.testCaseId },
+      }),
+      getCurrentUser(session.userId),
+      prisma.testExecution.findUnique({
+        where: {
+          testCaseId_testRunId: {
+            testCaseId: parsed.data.testCaseId,
+            testRunId: id,
+          },
+        },
+      }),
+    ]);
+    if (!testRun) {
+      return NextResponse.json(
+        { error: `Test run "${id}" not found` },
+        { status: 404 }
+      );
+    }
+
     if (!testCase) {
       return NextResponse.json(
         { error: `Test case "${parsed.data.testCaseId}" not found` },
@@ -91,20 +101,9 @@ export async function POST(
       );
     }
 
-    const user = await getCurrentUser(session.userId);
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
-
-    // Check for duplicate execution (one result per test case per run)
-    const existing = await prisma.testExecution.findUnique({
-      where: {
-        testCaseId_testRunId: {
-          testCaseId: parsed.data.testCaseId,
-          testRunId: id,
-        },
-      },
-    });
 
     if (existing) {
       return NextResponse.json(

@@ -1,28 +1,10 @@
-import { sign, verify, type JwtPayload } from "jsonwebtoken";
 import { compare, hash } from "bcryptjs";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-
-const JWT_SECRET = process.env.JWT_SECRET;
-
-if (!JWT_SECRET) {
-  throw new Error(
-    "JWT_SECRET environment variable is not set. Add it to .env (see .env.example)."
-  );
-}
-
-const JWT_SECRET_STRING: string = JWT_SECRET;
-
-/**
- * Shape of the data stored inside the JWT.
- */
-export type SessionUser = {
-  userId: string;
-  email: string;
-  name: string | null;
-  role: string;
-};
+import { verifyToken, type SessionUser } from "@/lib/session-token";
+export { signToken, verifyToken } from "@/lib/session-token";
+export type { SessionUser } from "@/lib/session-token";
 
 /**
  * Hash a plain-text password using bcrypt.
@@ -40,33 +22,6 @@ export async function verifyPassword(
   hashedPassword: string
 ): Promise<boolean> {
   return compare(plainPassword, hashedPassword);
-}
-
-/**
- * Sign a JWT session token. Returns the token string.
- */
-export function signToken(payload: SessionUser): string {
-  return sign(payload, JWT_SECRET_STRING, { expiresIn: "7d" });
-}
-
-/**
- * Verify a JWT token and return the decoded payload, or null if invalid.
- */
-export function verifyToken(token: string): SessionUser | null {
-  try {
-    const decoded = verify(
-      token,
-      JWT_SECRET_STRING
-    ) as unknown as SessionUser & JwtPayload;
-    return {
-      userId: decoded.userId,
-      email: decoded.email,
-      name: decoded.name,
-      role: decoded.role,
-    };
-  } catch {
-    return null;
-  }
 }
 
 /**

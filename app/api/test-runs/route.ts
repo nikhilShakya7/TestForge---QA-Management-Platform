@@ -7,6 +7,7 @@ const testRunSchema = z.object({
   name: z.string().min(1, "Test run name is required"),
   description: z.string().optional(),
   suiteId: z.string().optional().nullable(),
+  projectId: z.string().min(1, "Project ID is required"),
 });
 
 export async function GET(request: NextRequest) {
@@ -19,9 +20,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const suiteId = searchParams.get("suiteId") || undefined;
     const status = searchParams.get("status") || undefined;
+    const projectId = searchParams.get("projectId") || undefined;
 
     const testRuns = await prisma.testRun.findMany({
+      relationLoadStrategy: "join",
       where: {
+        createdById: session.userId,
+        ...(projectId ? { projectId } : {}),
         ...(suiteId ? { suiteId } : {}),
         ...(status ? { status } : {}),
       },
@@ -29,11 +34,33 @@ export async function GET(request: NextRequest) {
         suite: { select: { id: true, name: true } },
         createdBy: { select: { id: true, name: true, email: true } },
         _count: { select: { executions: true } },
+        executions: {
+          select: {
+            status: true,
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(testRuns);
+    // Add execution status breakdown to each test run
+    const testRunsWithStats = testRuns.map((run) => {
+      const executions = run.executions as Array<{ status: string }>;
+      const passed = executions.filter((e) => e.status === "Passed").length;
+      const failed = executions.filter((e) => e.status === "Failed").length;
+      const blocked = executions.filter((e) => e.status === "Blocked").length;
+
+      return {
+        ...run,
+        executions: undefined, // Remove raw executions from response
+        _count: {
+          ...run._count,
+          executions_by_status: { passed, failed, blocked },
+        },
+      };
+    });
+
+    return NextResponse.json(testRunsWithStats);
   } catch (error) {
     console.error("GET /api/test-runs error:", error);
     return NextResponse.json({ error: "Failed to fetch test runs" }, { status: 500 });
@@ -56,21 +83,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await getCurrentUser(session.userId);
+    const [user, suite] = await Promise.all([
+      getCurrentUser(session.userId),
+      parsed.data.suiteId
+        ? prisma.testSuite.findUnique({
+            where: { id: parsed.data.suiteId },
+          })
+        : Promise.resolve(null),
+    ]);
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    if (parsed.data.suiteId) {
-      const suite = await prisma.testSuite.findUnique({
-        where: { id: parsed.data.suiteId },
-      });
-      if (!suite) {
-        return NextResponse.json(
-          { error: `Test suite "${parsed.data.suiteId}" not found` },
-          { status: 404 }
-        );
-      }
+    if (parsed.data.suiteId && !suite) {
+      return NextResponse.json(
+        { error: `Test suite "${parsed.data.suiteId}" not found` },
+        { status: 404 }
+      );
     }
 
     const testRun = await prisma.testRun.create({
@@ -79,6 +108,7 @@ export async function POST(request: NextRequest) {
         description: parsed.data.description,
         status: "Planned",
         suiteId: parsed.data.suiteId ?? null,
+        projectId: parsed.data.projectId,
         createdById: user.id,
       },
       include: {

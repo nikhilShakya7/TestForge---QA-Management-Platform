@@ -6,11 +6,28 @@ import prisma from "@/lib/prisma";
 const testSuiteSchema = z.object({
   name: z.string().min(1, "Suite name is required"),
   description: z.string().optional(),
+  projectId: z.string().min(1, "Project ID is required"),
 });
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const session = getSessionFromRequest(request);
+    if (!session) {
+      return NextResponse.json(
+        { error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const projectId = searchParams.get("projectId") || undefined;
+
     const testSuites = await prisma.testSuite.findMany({
+      relationLoadStrategy: "join",
+      where: {
+        createdById: session.userId,
+        ...(projectId ? { projectId } : {}),
+      },
       include: {
         _count: { select: { testCases: true } },
         createdBy: { select: { id: true, name: true, email: true } },

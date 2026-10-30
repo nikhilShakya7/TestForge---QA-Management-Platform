@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Sidebar from "@/components/sidebar";
 
 type TestRun = {
   id: string;
@@ -9,6 +8,7 @@ type TestRun = {
   description: string | null;
   status: string;
   suiteId: string | null;
+  projectId: string | null;
   suite: { id: string; name: string } | null;
   createdBy: { id: string; name: string | null; email: string } | null;
   createdAt: string;
@@ -16,10 +16,17 @@ type TestRun = {
   _count: { executions: number };
 };
 
+type Project = {
+  id: string;
+  name: string;
+  key: string;
+};
+
 type TestSuite = {
   id: string;
   name: string;
   description: string | null;
+  projectId: string | null;
 };
 
 type TestCaseForRun = {
@@ -50,8 +57,11 @@ const STATUS_VARIANTS: Record<ExecutionStatus, string> = {
 export default function TestRunsPage() {
   const [testRuns, setTestRuns] = useState<TestRun[]>([]);
   const [testSuites, setTestSuites] = useState<TestSuite[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   // Create run form state
   const [creating, setCreating] = useState(false);
@@ -70,11 +80,49 @@ export default function TestRunsPage() {
   const [executionRecords, setExecutionRecords] = useState<Record<string, ExecutionRecord>>({});
   const [savingExecutions, setSavingExecutions] = useState(false);
 
+  // Fetch available projects for the dropdown
+  const fetchProjects = async () => {
+    try {
+      const res = await fetch("/api/projects", {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Failed to load projects");
+      const json = await res.json();
+      setProjects(json.data || []);
+    } catch (err) {
+      console.error("Failed to load projects:", err);
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
+  // Read projectId from localStorage or URL query param on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("testforge_projectId");
+      const params = new URLSearchParams(window.location.search);
+      const pid = params.get("projectId") || stored || null;
+      if (pid) {
+        setProjectId(pid);
+        localStorage.setItem("testforge_projectId", pid);
+      }
+    }
+  }, []);
+
   async function fetchTestRuns() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/test-runs", {
+      const params = new URLSearchParams();
+      if (projectId) params.set("projectId", projectId);
+
+      const res = await fetch(`/api/test-runs?${params.toString()}`, {
         credentials: "include",
         headers: { Accept: "application/json" },
         cache: "no-store",
@@ -90,8 +138,12 @@ export default function TestRunsPage() {
   }
 
   async function fetchTestSuites() {
+    if (!projectId) {
+      setTestSuites([]);
+      return;
+    }
     try {
-      const res = await fetch("/api/test-suites", {
+      const res = await fetch(`/api/test-suites?projectId=${projectId}`, {
         credentials: "include",
         headers: { Accept: "application/json" },
         cache: "no-store",
@@ -104,14 +156,19 @@ export default function TestRunsPage() {
     }
   }
 
+  // Re-fetch test runs and suites when project changes
+  useEffect(() => {
+    fetchTestRuns();
+    fetchTestSuites();
+  }, [projectId]);
+
   async function fetchRunDetails(runId: string) {
-    // Fetch test cases in the suite (or all if no suite)
     const run = testRuns.find((r) => r.id === runId);
     if (!run) return;
 
     try {
       let res = await fetch(
-        `/api/test-cases${run.suiteId ? `?suiteId=${run.suiteId}` : ""}`,
+        `/api/test-cases${run.projectId ? `?projectId=${run.projectId}` : ""}${run.suiteId ? `&suiteId=${run.suiteId}` : ""}`,
         { credentials: "include", cache: "no-store" }
       );
       if (!res.ok) throw new Error("Failed to load test cases");
@@ -125,7 +182,6 @@ export default function TestRunsPage() {
       }));
       setRunTestCases(cases);
 
-      // Fetch existing executions for this run
       res = await fetch(`/api/test-runs/${runId}/executions`, {
         credentials: "include",
         cache: "no-store",
@@ -156,14 +212,14 @@ export default function TestRunsPage() {
     }
   }
 
-  useEffect(() => {
-    fetchTestRuns();
-    fetchTestSuites();
-  }, []);
-
   const handleCreateRun = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError(null);
+
+    if (!projectId) {
+      setCreateError("Please select a project first");
+      return;
+    }
 
     try {
       const res = await fetch("/api/test-runs", {
@@ -174,6 +230,7 @@ export default function TestRunsPage() {
           name: createForm.name,
           description: createForm.description || undefined,
           suiteId: createForm.suiteId || undefined,
+          projectId,
         }),
       });
 
@@ -207,18 +264,12 @@ export default function TestRunsPage() {
   ) => {
     if (!selectedRun) return;
 
-    // Don't re-save if status hasn't changed
     if (executions[testCaseId] === status) return;
 
-    // Optimistic local update
     setExecutions((prev) => ({ ...prev, [testCaseId]: status }));
 
     try {
-      // Only create new executions; updating existing ones requires
-      // a PATCH /api/test-runs/[runId]/executions/[executionId] endpoint
-      // (planned for a future step)
       if (executionRecords[testCaseId]) {
-        // Update local state only; server-side update not yet supported
         setExecutionNotes((prev) => ({
           ...prev,
           [testCaseId]: executionNotes[testCaseId] || "",
@@ -239,7 +290,6 @@ export default function TestRunsPage() {
 
       if (!res.ok) {
         const errorBody = await res.json();
-        // Rollback optimistic update on duplicate
         if (res.status === 409) {
           setExecutions((prev) => ({
             ...prev,
@@ -256,7 +306,6 @@ export default function TestRunsPage() {
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save execution result");
-      // Rollback optimistic update
       setExecutions((prev) => ({ ...prev, [testCaseId]: "Passed" }));
     }
   };
@@ -270,7 +319,6 @@ export default function TestRunsPage() {
     setSavingExecutions(true);
 
     try {
-      // Mark the test run as InProgress since executions are being recorded
       const res = await fetch(`/api/test-runs/${selectedRun.id}`, {
         method: "PATCH",
         credentials: "include",
@@ -282,7 +330,6 @@ export default function TestRunsPage() {
         throw new Error("Failed to update test run status");
       }
 
-      // Update local run status
       setTestRuns((prev) =>
         prev.map((r) =>
           r.id === selectedRun!.id ? { ...r, status: "InProgress" } : r
@@ -301,15 +348,12 @@ export default function TestRunsPage() {
   };
 
   const runStats = (run: TestRun) => {
-    const total = run._count.executions;
-    // We don't have per-status counts from the API yet, so return placeholder
+    const total = run._count?.executions ?? 0;
     return { total, passed: 0, failed: 0, blocked: 0 };
   };
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 md:flex">
-      <Sidebar />
-
       <section className="min-w-0 flex-1 p-5 md:p-8">
         <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -333,8 +377,53 @@ export default function TestRunsPage() {
           </div>
         )}
 
+        {/* Project selector */}
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-sm font-medium text-slate-700">Project:</span>
+            <select
+              value={projectId || ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                setProjectId(val || null);
+                localStorage.setItem("testforge_projectId", val || "");
+                const params = new URLSearchParams(window.location.search);
+                if (val) params.set("projectId", val);
+                else params.delete("projectId");
+                window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+              }}
+              className="block rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+              disabled={projectsLoading}
+            >
+              <option value="">Select a project…</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.key} - {p.name}
+                </option>
+              ))}
+            </select>
+            {projectsLoading && (
+              <span className="text-xs text-slate-400 italic">Loading…</span>
+            )}
+          </div>
+          {projectId && (
+            <p className="text-xs text-slate-500 mt-1">
+              Viewing test runs for selected project. Create new test runs
+              will be assigned to this project.
+            </p>
+          )}
+        </div>
+
+        {!projectId && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm text-amber-700">
+              Please select a project to view and manage test runs.
+            </p>
+          </div>
+        )}
+
         {/* Create test run form */}
-        {creating && (
+        {creating && projectId && (
           <div className="mb-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-lg font-semibold mb-4">Create Test Run</h3>
             {createError && (
@@ -410,85 +499,87 @@ export default function TestRunsPage() {
         )}
 
         {/* Test runs list */}
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-          <div className="border-b border-slate-100 px-5 py-3 bg-slate-50">
-            <h3 className="font-semibold">Test Runs</h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Execution sessions for tracking test results.
-            </p>
-          </div>
+        {projectId && (
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-3 bg-slate-50">
+              <h3 className="font-semibold">Test Runs</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Execution sessions for tracking test results.
+              </p>
+            </div>
 
-          {loading ? (
-            <div className="px-5 py-8 text-center text-slate-500">
-              Loading test runs…
-            </div>
-          ) : testRuns.length === 0 ? (
-            <div className="px-5 py-8 text-center text-slate-500">
-              No test runs yet. Create one to get started.
-            </div>
-          ) : (
-            <table className="w-full text-left text-sm divide-y divide-slate-100">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-5 py-3 font-medium">Name</th>
-                  <th className="px-5 py-3 font-medium">Suite</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Executions</th>
-                  <th className="px-5 py-3 font-medium">Created By</th>
-                  <th className="px-5 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {testRuns.map((run) => {
-                  const { total } = runStats(run);
-                  const isSelected = selectedRun?.id === run.id;
-                  return (
-                    <tr
-                      key={run.id}
-                      onClick={() => handleSelectRun(run)}
-                      className={`cursor-pointer hover:bg-slate-50 transition-colors ${
-                        isSelected ? "bg-indigo-50" : ""
-                      }`}
-                    >
-                      <td className="px-5 py-4 font-medium text-slate-900">
-                        {run.name}
-                      </td>
-                      <td className="px-5 py-4">
-                        {run.suite ? (
-                          <span className="text-xs text-slate-500">
-                            {run.suite.name}
+            {loading ? (
+              <div className="px-5 py-8 text-center text-slate-500">
+                Loading test runs…
+              </div>
+            ) : testRuns.length === 0 ? (
+              <div className="px-5 py-8 text-center text-slate-500">
+                No test runs yet. Create one to get started.
+              </div>
+            ) : (
+              <table className="w-full text-left text-sm divide-y divide-slate-100">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3 font-medium">Name</th>
+                    <th className="px-5 py-3 font-medium">Suite</th>
+                    <th className="px-5 py-3 font-medium">Status</th>
+                    <th className="px-5 py-3 font-medium">Executions</th>
+                    <th className="px-5 py-3 font-medium">Created By</th>
+                    <th className="px-5 py-3 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {testRuns.map((run) => {
+                    const { total } = runStats(run);
+                    const isSelected = selectedRun?.id === run.id;
+                    return (
+                      <tr
+                        key={run.id}
+                        onClick={() => handleSelectRun(run)}
+                        className={`cursor-pointer hover:bg-slate-50 transition-colors ${
+                          isSelected ? "bg-indigo-50" : ""
+                        }`}
+                      >
+                        <td className="px-5 py-4 font-medium text-slate-900">
+                          {run.name}
+                        </td>
+                        <td className="px-5 py-4">
+                          {run.suite ? (
+                            <span className="text-xs text-slate-500">
+                              {run.suite.name}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${run.status === "Completed" ? "bg-emerald-50 text-emerald-700" : run.status === "InProgress" ? "bg-blue-50 text-blue-700" : "bg-slate-50 text-slate-700"}`}>
+                            {run.status}
                           </span>
-                        ) : (
-                          <span className="text-xs text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${run.status === "Completed" ? "bg-emerald-50 text-emerald-700" : run.status === "InProgress" ? "bg-blue-50 text-blue-700" : "bg-slate-50 text-slate-700"}`}>
-                          {run.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">{total}</td>
-                      <td className="px-5 py-4 text-sm text-slate-600">
-                        {run.createdBy?.name || run.createdBy?.email || "—"}
-                      </td>
-                      <td className="px-5 py-4">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectRun(run);
-                          }}
-                          className="text-sm text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
-                        >
-                          View / Record Results
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+                        </td>
+                        <td className="px-5 py-4">{total}</td>
+                        <td className="px-5 py-4 text-sm text-slate-600">
+                          {run.createdBy?.name || run.createdBy?.email || "—"}
+                        </td>
+                        <td className="px-5 py-4">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectRun(run);
+                            }}
+                            className="text-sm text-indigo-600 hover:text-indigo-700 underline underline-offset-4"
+                          >
+                            View / Record Results
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         {/* Run detail: record executions */}
         {selectedRun && runTestCases.length > 0 && (

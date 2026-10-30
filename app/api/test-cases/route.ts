@@ -17,6 +17,7 @@ const testCaseSchema = z.object({
   priority: z.enum(["Low", "Medium", "High", "Critical"]).default("Medium"),
   status: z.enum(["Draft", "Active", "Archived"]).default("Draft"),
   suiteId: z.string().optional().nullable(),
+  projectId: z.string().min(1, "Project ID is required"),
 });
 
 /**
@@ -28,6 +29,7 @@ const querySchema = z
     priority: z.string().optional(),
     status: z.string().optional(),
     suiteId: z.string().optional(),
+    projectId: z.string().optional(),
     sortBy: z.string().default("createdAt"),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
     page: z.string().default("1"),
@@ -37,6 +39,14 @@ const querySchema = z
 
 export async function GET(request: NextRequest) {
   try {
+    const session = getSessionFromRequest(request);
+    if (!session) {
+      return NextResponse.json(
+        { error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const raw = Object.fromEntries(searchParams.entries());
     const parsed = querySchema.safeParse(raw);
@@ -53,13 +63,20 @@ export async function GET(request: NextRequest) {
       priority,
       status,
       suiteId,
+      projectId,
       sortBy = "createdAt",
       sortOrder = "desc",
       page = "1",
       pageSize = "20",
     } = parsed.data;
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = {
+      createdById: session.userId,
+    };
+
+    if (projectId) {
+      where.projectId = projectId;
+    }
 
     if (search) {
       where.OR = [
@@ -84,8 +101,9 @@ export async function GET(request: NextRequest) {
     const take = Math.min(parseInt(pageSize, 10), 100);
     const skip = (parseInt(page, 10) - 1) * take;
 
-    const [testCases, total] = await prisma.$transaction([
+    const [testCases, total] = await Promise.all([
       prisma.testCase.findMany({
+        relationLoadStrategy: "join",
         where,
         include: {
           suite: { select: { id: true, name: true } },
@@ -130,31 +148,6 @@ export async function POST(request: NextRequest) {
 
     const { suiteId, ...data } = parsed.data;
 
-    // Check for duplicate testCaseId
-    const existing = await prisma.testCase.findUnique({
-      where: { testCaseId: data.testCaseId },
-    });
-
-    if (existing) {
-      return NextResponse.json(
-        { error: `Test case ID "${data.testCaseId}" already exists` },
-        { status: 409 }
-      );
-    }
-
-    // If a suiteId is provided, verify the suite exists
-    if (suiteId) {
-      const suite = await prisma.testSuite.findUnique({
-        where: { id: suiteId },
-      });
-      if (!suite) {
-        return NextResponse.json(
-          { error: `Test suite with id "${suiteId}" not found` },
-          { status: 404 }
-        );
-      }
-    }
-
     // Resolve the authenticated user from the session cookie
     const session = getSessionFromRequest(request);
     if (!session) {
@@ -164,7 +157,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await getCurrentUser(session.userId);
+    const [existing, suite, user] = await Promise.all([
+      prisma.testCase.findUnique({
+        where: { testCaseId: data.testCaseId },
+      }),
+      suiteId
+        ? prisma.testSuite.findUnique({ where: { id: suiteId } })
+        : Promise.resolve(null),
+      getCurrentUser(session.userId),
+    ]);
+
+    if (existing) {
+      return NextResponse.json(
+        { error: `Test case ID "${data.testCaseId}" already exists` },
+        { status: 409 }
+      );
+    }
+
+    if (suiteId && !suite) {
+      return NextResponse.json(
+        { error: `Test suite with id "${suiteId}" not found` },
+        { status: 404 }
+      );
+    }
+
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
@@ -173,6 +189,7 @@ export async function POST(request: NextRequest) {
       data: {
         ...data,
         suiteId: suiteId ?? null,
+        projectId: data.projectId,
         createdById: user.id,
       },
       include: {

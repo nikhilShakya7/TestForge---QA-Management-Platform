@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { getSessionFromRequest, getCurrentUser } from "@/lib/auth";
+import { getSessionFromRequest } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 const updateTestRunSchema = z.object({
@@ -11,14 +11,23 @@ const updateTestRunSchema = z.object({
 });
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = getSessionFromRequest(request);
+    if (!session) {
+      return NextResponse.json(
+        { error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
     const { id } = await params;
 
     const testRun = await prisma.testRun.findUnique({
-      where: { id },
+      relationLoadStrategy: "join",
+      where: { id, createdById: session.userId },
       include: {
         suite: { select: { id: true, name: true } },
         createdBy: { select: { id: true, name: true, email: true } },
@@ -70,7 +79,9 @@ export async function PATCH(
       );
     }
 
-    const existing = await prisma.testRun.findUnique({ where: { id } });
+    const existing = await prisma.testRun.findUnique({
+      where: { id, createdById: session.userId },
+    });
     if (!existing) {
       return NextResponse.json(
         { error: `Test run "${id}" not found` },
@@ -129,7 +140,7 @@ export async function DELETE(
     const { id } = await params;
 
     const existing = await prisma.testRun.findUnique({
-      where: { id },
+      where: { id, createdById: session.userId },
       include: { _count: { select: { executions: true } } },
     });
 
