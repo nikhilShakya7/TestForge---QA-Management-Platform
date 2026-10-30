@@ -30,12 +30,30 @@ into the existing `.env` file (or `.env.local` if `.env` does not exist):
 npx neon@latest init -y --org-id org-dry-resonance-57053162 --project-id polished-cloud-16428697 --branch production --services postgres
 npx neon@latest deploy
 npm run db:push
-npm run db:seed
 ```
 
 Prisma uses the pooled `DATABASE_URL` for application queries and the direct
 `DATABASE_URL_UNPOOLED` connection for schema changes. The seed command is
 optional and inserts sample QA data.
+
+On a new, empty database, create the first account before running the seed
+command. That first account becomes the Super Admin; later public signups
+receive the QA Tester role and cannot choose a role. A Super Admin can invite users with expiring, copyable invitation links and
+manage their workspace roles and account access from User Management.
+
+If the database already contains accounts but no Super Admin, promote a
+trusted active account through an authenticated database-admin session before
+using User Management:
+
+```sql
+UPDATE "User"
+SET role = 'SUPER_ADMIN'
+WHERE email = 'trusted-admin@example.com'
+  AND "isActive" = true;
+```
+
+Verify exactly one row was updated. Only after initial admin setup, optionally
+run `npm run db:seed` to insert sample QA data.
 
 ## Learn More
 

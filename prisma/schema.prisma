@@ -26,6 +26,7 @@ model Project {
   testRuns    TestRun[]
   defects     Defect[]
   automatedResults AutomatedTestResult[]
+  projectMembers  ProjectMember[]
 
   @@index([createdById])
   @@index([key])
@@ -37,7 +38,7 @@ model User {
   email            String                @unique
   name             String?
   passwordHash     String
-  role             String                @default("TESTER")
+  role             String                @default("QA_TESTER")
   isActive         Boolean               @default(true)
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
@@ -49,7 +50,11 @@ model User {
   testRuns         TestRun[]
   testSuites       TestSuite[]
   projects         Project[]
+  projectMembers   ProjectMember[]
+
   testExecutionHistories TestExecutionHistory[]
+
+  auditLogs        AuditLog[]
 
   @@index([email])
   @@index([role])
@@ -228,4 +233,49 @@ model AutomatedTestCaseResult {
 
   @@index([automatedResultId])
   @@index([status])
+}
+
+model ProjectMember {
+  id          String   @id @default(uuid())
+  userId      String
+  projectId   String
+  role        String   @default("QA_TESTER") // SUPER_ADMIN | PROJECT_ADMIN | QA_TESTER | VIEWER
+  joinedAt    DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([userId])
+  @@index([projectId])
+  @@index([role])
+}
+
+model Invitation {
+  id               String   @id @default(uuid())
+  email            String
+  role             String   @default("QA_TESTER") // SUPER_ADMIN | PROJECT_ADMIN | QA_TESTER | VIEWER
+  tokenHash        String
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  status           String   @default("PENDING") // PENDING | ACCEPTED | EXPIRED | CANCELLED
+  createdAt        DateTime @default(now())
+
+  @@index([tokenHash])
+  @@index([email])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id              String   @id @default(uuid())
+  userId          String?
+  action          String
+  details         String?
+  createdAt       DateTime @default(now())
+
+  user            User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
 }

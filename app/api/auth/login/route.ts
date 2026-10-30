@@ -1,10 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { getSessionFromRequest, signToken, setSessionCookie } from "@/lib/auth";
+import {
+  normalizeUserRole,
+  signToken,
+  setSessionCookie,
+  verifyPassword,
+} from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 const loginSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  email: z
+    .string()
+    .trim()
+    .email("Invalid email address")
+    .transform((email) => email.toLowerCase()),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -34,8 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Compare passwords using bcrypt
-    const { compare } = await import("bcryptjs");
-    const passwordMatches = await compare(password, user.passwordHash);
+    const passwordMatches = await verifyPassword(password, user.passwordHash);
 
     if (!passwordMatches) {
       return NextResponse.json(
@@ -51,11 +59,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const role = normalizeUserRole(user.role);
     const token = signToken({
       userId: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
+      role,
     });
 
     const response = NextResponse.json({
@@ -64,7 +73,7 @@ export async function POST(request: NextRequest) {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role,
+        role,
       },
     });
 

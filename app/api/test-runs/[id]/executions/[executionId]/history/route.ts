@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getSessionFromRequest } from "@/lib/auth";
+import { getActiveSessionUser } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 /**
@@ -11,7 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string; executionId: string }> }
 ) {
   try {
-    const session = getSessionFromRequest(_request);
+    const session = await getActiveSessionUser(_request);
     if (!session) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }

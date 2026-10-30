@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { getSessionFromRequest, getCurrentUser } from "@/lib/auth";
+import {
+  getActiveSessionUser,
+  getCurrentUser,
+  getWriteAccessError,
+} from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 const updateExecutionSchema = z.object({
@@ -18,10 +22,12 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; executionId: string }> }
 ) {
   try {
-    const session = getSessionFromRequest(request);
+    const session = await getActiveSessionUser(request);
     if (!session) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
+    const writeError = getWriteAccessError(session);
+    if (writeError) return writeError;
 
     const { id: testRunId, executionId } = await params;
 
@@ -131,7 +137,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string; executionId: string }> }
 ) {
   try {
-    const session = getSessionFromRequest(_request);
+    const session = await getActiveSessionUser(_request);
     if (!session) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }

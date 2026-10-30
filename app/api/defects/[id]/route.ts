@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { getSessionFromRequest } from "@/lib/auth";
+import {
+  getActiveSessionUser,
+  canAccessProject,
+  canManageProject,
+  getWriteAccessError,
+} from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 const updateDefectSchema = z.object({
@@ -21,15 +26,15 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = getSessionFromRequest(request);
+    const session = await getActiveSessionUser(request);
     if (!session) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
-
     const { id } = await params;
 
-    const defect = await prisma.defect.findUnique({
-      where: { id, reportedById: session.userId },
+    // Check if user can access this defect (via project access)
+    const defectRecord = await prisma.defect.findUnique({
+      where: { id },
       include: {
         testCase: { select: { id: true, testCaseId: true, title: true } },
         reportedBy: { select: { id: true, name: true, email: true } },
@@ -37,14 +42,24 @@ export async function GET(
       },
     });
 
-    if (!defect) {
+    if (!defectRecord) {
       return NextResponse.json(
         { error: `Defect "${id}" not found` },
         { status: 404 }
       );
     }
 
-    return NextResponse.json(defect);
+    const projectId = defectRecord.projectId || "";
+    // Verify user has access to the project the defect belongs to
+    const projectAccess = await canAccessProject(session, projectId);
+    if (!projectAccess) {
+      return NextResponse.json(
+        { error: "You do not have access to this project" },
+        { status: 403 }
+      );
+    }
+
+    return NextResponse.json(defectRecord);
   } catch (error) {
     console.error("GET /api/defects/[id] error:", error);
     return NextResponse.json({ error: "Failed to fetch defect" }, { status: 500 });
@@ -56,10 +71,12 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = getSessionFromRequest(request);
+    const session = await getActiveSessionUser(request);
     if (!session) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
+    const writeError = getWriteAccessError(session);
+    if (writeError) return writeError;
 
     const { id } = await params;
 
@@ -72,14 +89,26 @@ export async function PATCH(
       );
     }
 
-    const existing = await prisma.defect.findUnique({
-      where: { id, reportedById: session.userId },
+    // Check if user can manage this project
+    const defectRecord = await prisma.defect.findUnique({
+      where: { id },
+      include: { project: true },
     });
 
-    if (!existing) {
+    if (!defectRecord) {
       return NextResponse.json(
         { error: `Defect "${id}" not found` },
         { status: 404 }
+      );
+    }
+
+    const projectId = defectRecord.projectId || "";
+    // Check project management permissions
+    const canManage = await canManageProject(session, projectId);
+    if (!canManage) {
+      return NextResponse.json(
+        { error: "You do not have permission to modify defects in this project" },
+        { status: 403 }
       );
     }
 
@@ -96,7 +125,7 @@ export async function PATCH(
       }
     }
 
-    // If assigneeId is provided, verify the user exists
+    // If assigneeId is provided, verify the user exists and is a project member
     if (parsed.data.assigneeId !== undefined && parsed.data.assigneeId !== null) {
       const assignee = await prisma.user.findUnique({
         where: { id: parsed.data.assigneeId },
@@ -107,9 +136,24 @@ export async function PATCH(
           { status: 404 }
         );
       }
+      // Check if assignee is a project member
+      const membership = await prisma.projectMember.findUnique({
+        where: {
+          userId_projectId: {
+            userId: parsed.data.assigneeId,
+            projectId,
+          },
+        },
+      });
+      if (!membership) {
+        return NextResponse.json(
+          { error: "Assignee must be a member of the project" },
+          { status: 403 }
+        );
+      }
     }
 
-    const defect = await prisma.defect.update({
+    const updatedDefect = await prisma.defect.update({
       where: { id },
       data: {
         ...(parsed.data.title !== undefined && { title: parsed.data.title }),
@@ -130,7 +174,7 @@ export async function PATCH(
       },
     });
 
-    return NextResponse.json(defect);
+    return NextResponse.json(updatedDefect);
   } catch (error) {
     console.error("PATCH /api/defects/[id] error:", error);
     return NextResponse.json({ error: "Failed to update defect" }, { status: 500 });
@@ -142,21 +186,36 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = getSessionFromRequest(request);
+    const session = await getActiveSessionUser(request);
     if (!session) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
+    const writeError = getWriteAccessError(session);
+    if (writeError) return writeError;
 
     const { id } = await params;
 
-    const existing = await prisma.defect.findUnique({
-      where: { id, reportedById: session.userId },
+    const defectRecord = await prisma.defect.findUnique({
+      where: { id },
+      include: { project: true },
     });
 
-    if (!existing) {
+    if (!defectRecord) {
       return NextResponse.json(
         { error: `Defect "${id}" not found` },
         { status: 404 }
+      );
+    }
+
+    const projectId = defectRecord.projectId || "";
+    // Check delete permissions (only creator or admin can delete)
+    const isCreator = defectRecord.reportedById === session.userId;
+    const isAdmin = await canManageProject(session, projectId);
+
+    if (!isCreator && !isAdmin) {
+      return NextResponse.json(
+        { error: "You do not have permission to delete this defect" },
+        { status: 403 }
       );
     }
 

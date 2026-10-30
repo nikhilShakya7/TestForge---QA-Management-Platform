@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import ConfirmDialog from "@/components/dialogs/ConfirmDialog";
 import {
   AlertCircle,
@@ -419,6 +420,8 @@ export default function DefectsPage() {
     }
   }, []);
 
+  const router = useRouter();
+
   const fetchDefects = useCallback(async () => {
     const requestId = ++fetchRequestId.current;
 
@@ -648,7 +651,7 @@ export default function DefectsPage() {
   };
 
   const openDefect = (id: string) => {
-    window.location.href = `/defects/${id}`;
+    router.push(`/defects/${id}`);
   };
 
   const handleProjectChange = (selectedProjectId: string) => {

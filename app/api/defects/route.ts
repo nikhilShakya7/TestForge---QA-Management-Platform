@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { getSessionFromRequest, getCurrentUser } from "@/lib/auth";
+import {
+  getActiveSessionUser,
+  getCurrentUser,
+  getWriteAccessError,
+} from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 const defectSchema = z.object({
@@ -33,7 +37,7 @@ const querySchema = z
 
 export async function GET(request: NextRequest) {
   try {
-    const session = getSessionFromRequest(request);
+    const session = await getActiveSessionUser(request);
     if (!session) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
@@ -128,10 +132,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = getSessionFromRequest(request);
+    const session = await getActiveSessionUser(request);
     if (!session) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
+    const writeError = getWriteAccessError(session);
+    if (writeError) return writeError;
 
     const body = await request.json();
     const parsed = defectSchema.safeParse(body);

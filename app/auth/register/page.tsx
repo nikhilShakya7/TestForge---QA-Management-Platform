@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -9,12 +9,18 @@ export default function RegisterPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [invitationToken, setInvitationToken] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     email: "",
     name: "",
     password: "",
-    role: "TESTER" as "TESTER" | "ADMIN",
   });
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setInvitationToken(new URLSearchParams(window.location.search).get("invite"));
+    });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,7 +31,10 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          ...(invitationToken ? { invitationToken } : {}),
+        }),
       });
 
       const data = await res.json();
@@ -37,7 +46,7 @@ export default function RegisterPage() {
       }
 
       router.push("/auth/login");
-    } catch (err) {
+    } catch {
       setError("An unexpected error occurred");
       setLoading(false);
     }
@@ -48,7 +57,9 @@ export default function RegisterPage() {
       <div className="max-w-md w-full bg-white rounded-xl border border-slate-200 p-8 shadow-sm">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-indigo-600">TestForge</h1>
-          <p className="mt-1 text-sm text-slate-500">Create your account</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {invitationToken ? "Accept your invitation" : "Create your account"}
+          </p>
         </div>
 
         {error && (
@@ -111,25 +122,11 @@ export default function RegisterPage() {
             <p className="mt-1 text-xs text-slate-500">At least 8 characters</p>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Role
-            </label>
-            <select
-              name="role"
-              value={formData.role}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  role: e.target.value as "TESTER" | "ADMIN",
-                })
-              }
-              className="block w-full text-black rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
-            >
-              <option value="TESTER">Tester</option>
-              <option value="ADMIN">Administrator</option>
-            </select>
-          </div>
+          <p className="text-xs text-slate-500">
+            {invitationToken
+              ? "Your role will be set by the invitation."
+              : "New accounts are created as QA Testers. The first account on a fresh workspace becomes its Super Admin."}
+          </p>
 
           <button
             type="submit"

@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getSessionFromRequest, getCurrentUser } from "@/lib/auth";
+import {
+  clearSessionCookie,
+  getSessionFromRequest,
+  getCurrentUser,
+} from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,8 +18,10 @@ export async function GET(request: NextRequest) {
 
     const user = await getCurrentUser(session.userId);
 
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    if (!user || !user.isActive) {
+      return clearSessionCookie(
+        NextResponse.json({ error: "Authentication required" }, { status: 401 })
+      );
     }
 
     return NextResponse.json({ user });

@@ -14,7 +14,7 @@ async function main() {
       name: "QA Engineer",
       passwordHash:
         "$2b$10$placeholder.hash.does.not.verify.use.auth.phase", // placeholder only
-      role: "ADMIN",
+      role: "QA_TESTER",
     },
   });
 
